@@ -1,4 +1,4 @@
-# Utterance    [![Titanium](http://www-static.appcelerator.com/badges/titanium-git-badge-sq.png)](http://www.appcelerator.com/titanium/)
+# Utterance
 
 Utterance lets you use your device's native Text to Speech and Speech to Text capabilities in your Titanium projects.
 
@@ -6,7 +6,7 @@ See the Android example video [here](http://youtu.be/Nlrp7L2eeJs)
 
 
 <h2>Before you start</h2>
-* You need Titanium SDK 3.2.1.GA or greater
+* You need Titanium SDK 9.0.0.GA or greater
 * If using iOS, you need iOS 7 or greater
 * If using Android, you need Android 4 or greater
 * Before using this module you first need to install the package. If you need instructions on how to install a 3rd party module please read this installation guide.
@@ -15,9 +15,8 @@ See the Android example video [here](http://youtu.be/Nlrp7L2eeJs)
 
 Download the platform you wish to use:
 
-* [iOS Dist](https://github.com/benbahrenburg/Utterance/tree/master/ios/dist)
-* [Android Dist](https://github.com/benbahrenburg/Utterance/tree/master/android/dist)
-* Install from gitTio    [![gitTio](http://gitt.io/badge.png)](http://gitt.io/component/bencoding.utterance)
+* [iOS Dist](https://github.com/m1ga/Utterance/tree/master/ios/dist)
+* [Android Dist](https://github.com/m1ga/Utterance/tree/master/android/dist)
 
 <h2>Building from source?</h2>
 
@@ -35,7 +34,7 @@ Import the project into Eclipse:
 <h2>Setup</h2>
 
 * Download the latest release from the releases folder ( or you can build it yourself )
-* Install the Utterance module. If you need help here is a "How To" [guide](https://wiki.appcelerator.org/display/guides/Configuring+Apps+to+Use+Modules). 
+* Install the Utterance module. If you need help here is a "How To" [guide](https://wiki.appcelerator.org/display/guides/Configuring+Apps+to+Use+Modules).
 * You can now use the module via the commonJS require method, example shown below.
 
 <h2>Importing the module using require</h2>
@@ -51,8 +50,8 @@ The Speech proxy provides Text to Speech capabilities using the device's native 
 
 To learn more about Text to Speech please read the documentation:
 
-* [Android](https://github.com/benbahrenburg/Utterance/tree/master/android/documentation/tts.md)
-* [iOS](https://github.com/benbahrenburg/Utterance/tree/master/ios/documentation/tts.md)
+* [Android](https://github.com/m1ga/Utterance/tree/master/android/documentation/tts.md)
+* [iOS](https://github.com/m1ga/Utterance/tree/master/ios/documentation/tts.md)
 
 
 <h2>Speech To Text</h2>
@@ -63,7 +62,7 @@ The SpeechToText proxy provides Speech to Text capabilities using the device's n
 
 To learn more about Speech to Text please read the documentation:
 
-* [Android](https://github.com/benbahrenburg/Utterance/tree/master/android/documentation/stt.md)
+* [Android](https://github.com/m1ga/Utterance/tree/master/android/documentation/stt.md)
 
 
 <h2>Learn More</h2>
@@ -72,15 +71,15 @@ To learn more about Speech to Text please read the documentation:
 
 Please check the module's example folder :
 
-* [iOS](https://github.com/benbahrenburg/Utterance/tree/master/ios/example)
-* [Android](https://github.com/benbahrenburg/Utterance/tree/master/android/example)
+* [iOS](https://github.com/m1ga/Utterance/tree/master/ios/example)
+* [Android](https://github.com/m1ga/Utterance/tree/master/android/example)
 
 <h3>Credits</h3>
 The language detection snippet is from [Eric Wolfe's](https://github.com/ericrwolfe) contribution to [Hark](https://github.com/kgn/Hark)
 
 <h3>Twitter</h3>
 
-Please consider following the [@benCoding Twitter](http://www.twitter.com/benCoding) for updates 
+Please consider following the [@benCoding Twitter](http://www.twitter.com/benCoding) for updates
 and more about Titanium.
 
 <h3>Blog</h3>
