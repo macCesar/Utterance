@@ -9,7 +9,8 @@ package bencoding.utterance;
 import android.app.Activity;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.TextToSpeech.OnInitListener;
-import android.speech.tts.TextToSpeech.OnUtteranceCompletedListener;
+import android.speech.tts.UtteranceProgressListener;
+import android.os.Bundle;
 
 import org.appcelerator.kroll.KrollDict;
 import org.appcelerator.kroll.KrollPropertyChange;
@@ -25,26 +26,57 @@ import java.util.List;
 import java.util.Locale;
 
 @Kroll.proxy(creatableInModule = UtteranceModule.class)
-public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEvent, KrollProxyListener, OnInitListener, OnUtteranceCompletedListener {
-    //Add properties for iOS compatability
+public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEvent, KrollProxyListener, OnInitListener {
+    //Add properties for iOS compatability - FIXED VALUES v3.0+
     @Kroll.constant
-    public static final int DEFAULT_SPEECH_RATE = 0;
+    public static final float DEFAULT_SPEECH_RATE = 1.0f; // Android normal speed
     @Kroll.constant
-    public static final int MIN_SPEECH_RATE = 0;
+    public static final float MIN_SPEECH_RATE = 0.1f; // Android minimum practical speed
     @Kroll.constant
-    public static final int MAX_SPEECH_RATE = 0;
+    public static final float MAX_SPEECH_RATE = 3.0f; // Android maximum practical speed
     @Kroll.constant
     public static final int SPEECH_BOUNDARY_IMMEDIATE = 0;
     @Kroll.constant
     public static final int SPEECH_BOUNDARY_WORD = 0;
+    
+    // ========================================
+    // v3.0+ Practical Speech Rate Constants (Android Optimized)
+    // ========================================
+    // These constants provide useful speech rates optimized for Android (range ~0.1 - 3.0)
+    // Users can use these directly with the 'rate' property without platform conditionals
+    
+    @Kroll.constant
+    public static final float VERY_SLOW_SPEECH_RATE = 0.4f;  // Very slow for accessibility/learning
+    @Kroll.constant
+    public static final float SLOW_SPEECH_RATE = 0.7f;       // Slow for careful listening
+    @Kroll.constant
+    public static final float FAST_SPEECH_RATE = 1.6f;       // Fast for efficient reading
+    @Kroll.constant
+    public static final float VERY_FAST_SPEECH_RATE = 2.2f;  // Very fast for quick consumption
     private final String _logName = UtteranceModule.MODULE_FULL_NAME;
     private TextToSpeech _tts = null;
     private String _text = "";
     private String _voice = "";
+    private boolean _isInitialized = false;
+    private boolean _ttsReady = false; // Indica si el TTS está completamente listo
 
     public SpeechProxy() {
         super();
-        _tts = new TextToSpeech(TiApplication.getInstance().getApplicationContext(), this);
+        // Don't initialize TTS here to avoid 'this' escape warning
+        // TTS will be initialized when first needed
+    }
+    
+    private void initializeTTS() {
+        if (_tts == null && !_isInitialized) {
+            _isInitialized = true;
+            _tts = new TextToSpeech(TiApplication.getInstance().getApplicationContext(), this);
+        }
+    }
+    
+    private void ensureTTSInitialized() {
+        if (_tts == null) {
+            initializeTTS();
+        }
     }
 
     public static Locale toLocale(String str) {
@@ -85,18 +117,81 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         }
     }
 
-    @Override
-    public void onUtteranceCompleted(String utteranceId) {
-        Log.d(_logName, "utterance completed");
-        doListener("completed");
+    // Modern UtteranceProgressListener for API compatibility
+    private UtteranceProgressListener createUtteranceProgressListener() {
+        return new UtteranceProgressListener() {
+            @Override
+            public void onStart(String utteranceId) {
+                if ("WARMUP".equals(utteranceId)) {
+                    Log.d(_logName, "TTS warmup utterance started");
+                    return; // No disparar eventos para warmup
+                }
+                
+                Log.d(_logName, "utterance started");
+                _isSpeakingProperty = true; // Actualizar la propiedad para consistencia entre plataformas
+                doListener("started");
+            }
+
+            @Override
+            public void onDone(String utteranceId) {
+                if ("WARMUP".equals(utteranceId)) {
+                    Log.d(_logName, "TTS warmup utterance completed");
+                    _isWarmedUp = true;
+                    _warmupInProgress = false;
+                    return; // No disparar eventos para warmup
+                }
+                
+                Log.d(_logName, "utterance completed");
+                _isSpeakingProperty = false; // Actualizar la propiedad para consistencia entre plataformas
+                doListener("completed");
+            }
+
+            @Override
+            @SuppressWarnings("deprecation")
+            public void onError(String utteranceId) {
+                if ("WARMUP".equals(utteranceId)) {
+                    Log.w(_logName, "TTS warmup utterance error - will retry");
+                    _warmupInProgress = false;
+                    return; // No disparar eventos para warmup
+                }
+                
+                Log.e(_logName, "utterance error");
+                _isSpeakingProperty = false; // Actualizar la propiedad para consistencia entre plataformas
+                if (hasListeners("completed")) {
+                    HashMap<String, Object> event = new HashMap<String, Object>();
+                    event.put("success", false);
+                    event.put("message", "Speech synthesis error");
+                    event.put("text", _text);
+                    event.put("voice", _voice);
+                    fireEvent("completed", event);
+                }
+            }
+
+            @Override
+            public void onError(String utteranceId, int errorCode) {
+                if ("WARMUP".equals(utteranceId)) {
+                    Log.w(_logName, "TTS warmup utterance error (code: " + errorCode + ") - will retry");
+                    _warmupInProgress = false;
+                    return; // No disparar eventos para warmup
+                }
+                
+                Log.e(_logName, "utterance error with code: " + errorCode);
+                if (hasListeners("completed")) {
+                    HashMap<String, Object> event = new HashMap<String, Object>();
+                    event.put("success", false);
+                    event.put("message", "Speech synthesis error (code: " + errorCode + ")");
+                    event.put("text", _text);
+                    event.put("voice", _voice);
+                    event.put("errorCode", errorCode);
+                    fireEvent("completed", event);
+                }
+            }
+        };
     }
 
     @Override
     public void onInit(int status) {
         try {
-            if (_tts == null) {
-                _tts = new TextToSpeech(TiApplication.getInstance().getApplicationContext(), this);
-            }
 
             if (status == TextToSpeech.LANG_MISSING_DATA
                     || status == TextToSpeech.LANG_NOT_SUPPORTED) {
@@ -113,9 +208,29 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             }
 
             if (status == TextToSpeech.SUCCESS) {
-                //Log.d(_logName, "Adding OnUtteranceCompletedListener");
-                _tts.setOnUtteranceCompletedListener(this);
-                _voice = _tts.getLanguage().toString();
+                _ttsReady = true; // Marcar TTS como completamente listo
+                // Use modern UtteranceProgressListener instead of deprecated OnUtteranceCompletedListener
+                _tts.setOnUtteranceProgressListener(createUtteranceProgressListener());
+                
+                // Get default voice information using modern API if available
+                if (android.os.Build.VERSION.SDK_INT >= 21) {
+                    android.speech.tts.Voice defaultVoice = _tts.getVoice();
+                    if (defaultVoice != null) {
+                        _voice = defaultVoice.getLocale().toString();
+                    }
+                } else {
+                    // For older versions, use a safe fallback since getLanguage() and getDefaultLanguage() are both deprecated
+                    _voice = Locale.getDefault().toString();
+                }
+                
+                // Realizar warmup automático para evitar pérdida del primer speech
+                Log.i(_logName, "TTS initialized successfully, performing automatic warmup...");
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        warmUpTTS();
+                    }
+                }, 200); // Pequeño delay para asegurar que todo esté listo
             }
         } catch (Exception error) {
             if (hasListeners("completed")) {
@@ -135,7 +250,13 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         if (hasListeners(eventName)) {
             HashMap<String, Object> event = new HashMap<String, Object>();
             event.put("success", true);
-            event.put("speaking", _tts.isSpeaking());
+            // Actualizar y usar la propiedad _isSpeakingProperty para mantener consistencia
+            if (_tts != null) {
+                _isSpeakingProperty = _tts.isSpeaking();
+            } else {
+                _isSpeakingProperty = false;
+            }
+            event.put("speaking", _isSpeakingProperty);
             event.put("text", _text);
             event.put("voice", _voice);
             fireEvent(eventName, event);
@@ -145,18 +266,28 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         }
     }
 
+    // Variable para mantener el estado de habla, sincronizado con el TTS
+    private boolean _isSpeakingProperty = false;
+    
     @Kroll.getProperty
     @Kroll.method
     public Boolean isSpeaking() {
+        ensureTTSInitialized();
         if (_tts == null) {
+            _isSpeakingProperty = false;
             return false;
         } else {
-            return _tts.isSpeaking();
+            _isSpeakingProperty = _tts.isSpeaking();
+            return _isSpeakingProperty;
         }
     }
 
     @Kroll.method
     public boolean isLanguageAvailable(String language) {
+        ensureTTSInitialized();
+        if (_tts == null) {
+            return false;
+        }
         int check = _tts.isLanguageAvailable(toLocale(language));
         return ((check != TextToSpeech.LANG_MISSING_DATA) && (check != TextToSpeech.LANG_NOT_SUPPORTED));
     }
@@ -164,6 +295,57 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     @Kroll.method
     @SuppressWarnings({"rawtypes", "unchecked"})
     public void startSpeaking(HashMap hm) {
+        ensureTTSInitialized();
+        if (_tts == null) {
+            Log.e(_logName, "TTS not initialized");
+            return;
+        }
+        
+        // ========================================
+        // WARMUP AUTOMÁTICO INTEGRADO (v3.0+)
+        // ========================================
+        // Si TTS no está calentado y está disponible, hacer warmup automáticamente
+        if (!_isWarmedUp && !_warmupInProgress && _tts != null) {
+            Log.i(_logName, "TTS not warmed up, performing automatic warmup before speech...");
+            _warmupInProgress = true;
+            
+            // Hacer warmup silencioso primero
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= 21) {
+                    Bundle warmupParams = new Bundle();
+                    warmupParams.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "WARMUP");
+                    warmupParams.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0.01f);
+                    _tts.speak(".", TextToSpeech.QUEUE_FLUSH, warmupParams, "WARMUP");
+                } else {
+                    HashMap<String, String> warmupOptions = new HashMap<String, String>();
+                    warmupOptions.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "WARMUP");
+                    warmupOptions.put(TextToSpeech.Engine.KEY_PARAM_VOLUME, "0.01");
+                    @SuppressWarnings("deprecation")
+                    int result = _tts.speak(".", TextToSpeech.QUEUE_FLUSH, warmupOptions);
+                }
+                
+                // Esperar warmup y luego ejecutar el speech solicitado
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        _isWarmedUp = true;
+                        _warmupInProgress = false;
+                        Log.i(_logName, "Warmup completed, now executing requested speech");
+                        startSpeaking(hm); // Recursión para ejecutar el speech real
+                    }
+                }, 1500); // Aumentar tiempo para asegurar warmup completo
+                
+                return; // Salir aquí, el speech real se ejecutará después del warmup
+            } catch (Exception e) {
+                Log.e(_logName, "Error during automatic warmup: " + e.getMessage());
+                _warmupInProgress = false;
+                // Continuar con el speech normal aunque el warmup falle
+            }
+        }
+        
+        // ========================================
+        // SPEECH NORMAL (después del warmup o si ya está listo)
+        // ========================================
         KrollDict args = new KrollDict(hm);
         if (!args.containsKeyAndNotNull("text")) {
             Log.e(_logName, "the text parameter is required");
@@ -195,13 +377,29 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             _tts.setPitch((float) (dPitch));
         }
 
-        //Need to add this so OnUtteranceCompletedListener will fire
-        HashMap<String, String> options = new HashMap<String, String>();
-        options.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "FINISHED PLAYING");
+        // Use modern speak method (API 21+) or alternative for older versions
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            //Need to add this so UtteranceProgressListener will fire
+            Bundle params = new Bundle();
+            params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "FINISHED_PLAYING");
+            _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, params, "FINISHED_PLAYING");
+            _isSpeakingProperty = true; // Actualizar la propiedad para consistencia entre plataformas
+        } else {
+            // For older Android versions, use the deprecated method but suppress the warning
+            // since it's the only option available for those API levels
+            @SuppressWarnings("deprecation")
+            HashMap<String, String> options = new HashMap<String, String>();
+            options.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "FINISHED_PLAYING");
+            @SuppressWarnings("deprecation")
+            int result = _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, options);
+            if (result == TextToSpeech.ERROR) {
+                Log.e(_logName, "Error starting speech synthesis");
+            } else {
+                _isSpeakingProperty = true; // Actualizar la propiedad para consistencia entre plataformas
+            }
+        }
 
-        _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, options);
-
-        doListener("started");
+        // Note: started event is now handled by UtteranceProgressListener.onStart()
 
     }
 
@@ -210,12 +408,31 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     public void pauseSpeaking(@Kroll.argument(optional = true) HashMap hm) {
         Log.d(_logName, "Android does not support pauseSpeaking, this method is for parity only");
     }
+    
+    @Kroll.method
+    @SuppressWarnings("rawtypes")
+    public void continueSpeaking(@Kroll.argument(optional = true) HashMap hm) {
+        Log.d(_logName, "Android does not support continueSpeaking, this method is for parity only");
+        
+        // Disparar evento 'continued' para mantener la consistencia de comportamiento con iOS
+        doListener("continued");
+    }
+    
+    @Kroll.method
+    public void continueSpeaking() {
+        Log.d(_logName, "Android does not support continueSpeaking, this method is for parity only");
+        
+        // Disparar evento 'continued' para mantener la consistencia de comportamiento con iOS
+        doListener("continued");
+    }
 
     @Kroll.method
     @SuppressWarnings("rawtypes")
     public void stopSpeaking(@Kroll.argument(optional = true) HashMap hm) {
-        if (_tts.isSpeaking()) {
+        ensureTTSInitialized();
+        if (_tts != null && _tts.isSpeaking()) {
             _tts.stop();
+            _isSpeakingProperty = false; // Actualizar la propiedad para consistencia entre plataformas
         }
         doListener("stopped");
     }
@@ -226,6 +443,7 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         if (_tts != null) {
             if (_tts.isSpeaking()) {
                 _tts.stop();
+                _isSpeakingProperty = false; // Actualizar la propiedad para consistencia entre plataformas
             }
             _tts.shutdown();
         }
@@ -257,10 +475,182 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
 
 
     @Override
-    public void listenerRemoved(String arg0, int arg1, KrollProxy arg2) {
+    public void listenerRemoved(String arg0, int arg1, KrollProxy arg2) {    }
+
+    // ========================================
+    // Modern APIs leveraging Android API 21+ (v3.0 MVP)
+    // ========================================
+    
+    /**
+     * Get available voices using modern Android API 21+ methods
+     * @return Array of available voices with detailed information
+     */
+    @Kroll.method
+    public Object[] getModernVoices() {
+        ensureTTSInitialized();
+        if (_tts == null || android.os.Build.VERSION.SDK_INT < 21) {
+            Log.w(_logName, "Modern voices API requires Android API 21+");
+            return new Object[0];
+        }
+        
+        // Check if TTS is properly initialized and ready
+        if (!_ttsReady) {
+            Log.w(_logName, "TTS Engine not yet fully initialized - voices may not be available");
+            Log.i(_logName, "Recommendation: Wait a few seconds after creating Speech object before calling getModernVoices()");
+        }
+        
+        try {
+            // Use modern getVoices() method available since API 21
+            java.util.Set<android.speech.tts.Voice> voices = _tts.getVoices();
+            if (voices == null) {
+                Log.w(_logName, "TTS Engine returned null voice set - engine may not be ready");
+                Log.i(_logName, "Try calling getModernVoices() again after a few seconds");
+                return new Object[0];
+            }
+            
+            Log.i(_logName, "Successfully retrieved " + voices.size() + " voices from TTS engine");
+            Object[] result = new Object[voices.size()];
+            int index = 0;
+            
+            for (android.speech.tts.Voice voice : voices) {
+                HashMap<String, Object> voiceInfo = new HashMap<>();
+                voiceInfo.put("name", voice.getName());
+                voiceInfo.put("locale", voice.getLocale().toString());
+                voiceInfo.put("quality", voice.getQuality());
+                voiceInfo.put("isNetworkConnectionRequired", voice.isNetworkConnectionRequired());
+                result[index++] = voiceInfo;
+            }
+            
+            return result;
+        } catch (Exception e) {
+            Log.e(_logName, "Error getting modern voices: " + e.getMessage());
+            return new Object[0];
+        }
     }
 
+    /**
+     * Get available languages using modern Android API 21+ methods
+     * @return Array of available language codes
+     */
+    @Kroll.method
+    public Object[] getModernLanguages() {
+        ensureTTSInitialized();
+        if (_tts == null || android.os.Build.VERSION.SDK_INT < 21) {
+            Log.w(_logName, "Modern languages API requires Android API 21+");
+            return new Object[0];
+        }
+        
+        // Check if TTS is properly initialized and ready
+        if (!_ttsReady) {
+            Log.w(_logName, "TTS Engine not yet fully initialized - languages may not be available");
+            Log.i(_logName, "Recommendation: Wait a few seconds after creating Speech object before calling getModernLanguages()");
+        }
+        
+        try {
+            // Use modern getAvailableLanguages() method available since API 21
+            java.util.Set<java.util.Locale> languages = _tts.getAvailableLanguages();
+            if (languages == null) {
+                Log.w(_logName, "TTS Engine returned null language set - engine may not be ready");
+                Log.i(_logName, "Try calling getModernLanguages() again after a few seconds");
+                return new Object[0];
+            }
+            
+            Log.i(_logName, "Successfully retrieved " + languages.size() + " languages from TTS engine");
+            Object[] result = new Object[languages.size()];
+            int index = 0;
+            
+            for (java.util.Locale locale : languages) {
+                result[index++] = locale.toString();
+            }
+            
+            return result;
+        } catch (Exception e) {
+            Log.e(_logName, "Error getting modern languages: " + e.getMessage());
+            return new Object[0];
+        }
+    }
 
+    /**
+     * Check if TTS engine is fully initialized and ready
+     * @return true if TTS is ready, false otherwise
+     */
+    @Kroll.method
+    public boolean isTTSReady() {
+        return _tts != null && _ttsReady;
+    }
+
+    // ========================================
+    // TTS Warm-up y Inicialización Robusta (v3.0+)
+    // ========================================
+    
+    private boolean _isWarmedUp = false;
+    private boolean _warmupInProgress = false;
+    
+    /**
+     * Warm up TTS engine to ensure first speech is not lost
+     * This is especially important on slow/older Android devices
+     */
+    @Kroll.method
+    public void warmUpTTS() {
+        if (_isWarmedUp || _warmupInProgress) {
+            Log.d(_logName, "TTS already warmed up or warmup in progress");
+            return;
+        }
+        
+        ensureTTSInitialized();
+        if (_tts == null || !_ttsReady) {
+            Log.w(_logName, "TTS not ready for warmup, will retry when ready");
+            return;
+        }
+        
+        _warmupInProgress = true;
+        Log.i(_logName, "Starting TTS warmup to prevent first speech loss...");
+        
+        try {
+            // Crear warmup utterance muy corto e inaudible
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                Bundle params = new Bundle();
+                params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "WARMUP");
+                params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0.01f); // Casi silencioso
+                
+                // Speak un texto muy corto para inicializar el engine
+                _tts.speak(".", TextToSpeech.QUEUE_FLUSH, params, "WARMUP");
+            } else {
+                HashMap<String, String> options = new HashMap<String, String>();
+                options.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "WARMUP");
+                options.put(TextToSpeech.Engine.KEY_PARAM_VOLUME, "0.01");
+                
+                @SuppressWarnings("deprecation")
+                int result = _tts.speak(".", TextToSpeech.QUEUE_FLUSH, options);
+                if (result == TextToSpeech.SUCCESS) {
+                    Log.d(_logName, "TTS warmup started successfully");
+                }
+            }
+            
+            // Marcar como calentado después de un breve delay
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    _isWarmedUp = true;
+                    _warmupInProgress = false;
+                    Log.i(_logName, "TTS warmup completed - engine ready for reliable speech");
+                }
+            }, 1000); // 1 segundo debería ser suficiente
+            
+        } catch (Exception e) {
+            Log.e(_logName, "Error during TTS warmup: " + e.getMessage());
+            _warmupInProgress = false;
+        }
+    }
+    
+    /**
+     * Check if TTS has been warmed up and is ready for reliable speech
+     */
+    @Kroll.method
+    public boolean isTTSWarmedUp() {
+        return _tts != null && _ttsReady && _isWarmedUp;
+    }
+    
     @Override
     public void processProperties(KrollDict arg0) {
     }
