@@ -9,14 +9,14 @@
 #import "TiProxy.h"
 
 #import <AVFoundation/AVFoundation.h>
-@interface BencodingUtteranceSpeechProxy : TiProxy<AVSpeechSynthesizerDelegate> {
+@interface BencodingUtteranceSpeechProxy : TiProxy <AVSpeechSynthesizerDelegate>
+{
 
 @private
-    BOOL _isSpeaking;
-    BOOL _isSupported;
-    NSString* _text;
-    NSString *_voice;
+  BOOL _isSpeaking;
+  BOOL _isSupported;
+  NSString *_text;
+  NSString *_voice;
 }
-@property (strong, nonatomic) AVSpeechSynthesizer *speechSynthesizer;
-
+@property(strong, nonatomic) AVSpeechSynthesizer *speechSynthesizer;
 @end

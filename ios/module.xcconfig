@@ -26,3 +26,8 @@
 // IMPORTANT NOTE: always use $(inherited) in your overrides
 //
 OTHER_LDFLAGS=$(inherited) -framework AVFoundation
+
+//
+// Minimum Xcode version requirement for v3.0
+//
+XCODE_VERSION_CHECK = 13.0
