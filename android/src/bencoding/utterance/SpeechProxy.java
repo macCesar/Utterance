@@ -95,78 +95,43 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         }
     }
 
-    // Reemplazar el método toLocale() existente con esta versión mejorada
     public static Locale toLocale(String str) {
-  if (str == null) {
-      return null;
-  }
-  
-  // Para Android API 21+, manejar identificadores de voz modernos
-  if (android.os.Build.VERSION.SDK_INT >= 21 && str.contains("-x-")) {
-      // Formato moderno: es-us-x-sfb-network
-      // Extraer solo la parte del idioma: es_US
-      String[] parts = str.split("-x-");
-      if (parts.length > 0) {
-          String langPart = parts[0];
-          String[] langComponents = langPart.split("-");
-          if (langComponents.length >= 2) {
-              // Convertir es-us a es_US
-              return new Locale(langComponents[0], langComponents[1].toUpperCase());
-          } else if (langComponents.length == 1) {
-              return new Locale(langComponents[0]);
-          }
-      }
-  }
-  
-  // Lógica original para formatos tradicionales
-  int len = str.length();
-  if (len != 2 && len != 5 && len < 7) {
-      // No lanzar excepción, intentar parsear de manera más flexible
-      if (str.contains("_")) {
-          String[] parts = str.split("_");
-          if (parts.length >= 2) {
-              return new Locale(parts[0], parts[1]);
-          } else if (parts.length == 1) {
-              return new Locale(parts[0]);
-          }
-      }
-      return Locale.getDefault();
-  }
-  
-  char ch0 = str.charAt(0);
-  char ch1 = str.charAt(1);
-  if (ch0 < 'a' || ch0 > 'z' || ch1 < 'a' || ch1 > 'z') {
-      // No lanzar excepción, usar locale por defecto
-      return Locale.getDefault();
-  }
-  
-  if (len == 2) {
-      return new Locale(str, "");
-  } else {
-      if (str.charAt(2) != '_') {
-          // No lanzar excepción, usar locale por defecto
-          return Locale.getDefault();
-      }
-      char ch3 = str.charAt(3);
-      if (ch3 == '_') {
-          return new Locale(str.substring(0, 2), "", str.substring(4));
-      }
-      char ch4 = str.charAt(4);
-      if (ch3 < 'A' || ch3 > 'Z' || ch4 < 'A' || ch4 > 'Z') {
-          // No lanzar excepción, usar locale por defecto
-          return Locale.getDefault();
-      }
-      if (len == 5) {
-          return new Locale(str.substring(0, 2), str.substring(3, 5));
-      } else {
-          if (str.charAt(5) != '_') {
-              // No lanzar excepción, usar locale por defecto
-              return Locale.getDefault();
-          }
-          return new Locale(str.substring(0, 2), str.substring(3, 5), str.substring(6));
-      }
-  }
-}
+        if (str == null) {
+            return null;
+        }
+        int len = str.length();
+        if (len != 2 && len != 5 && len < 7) {
+            throw new IllegalArgumentException("Invalid locale format: " + str);
+        }
+        char ch0 = str.charAt(0);
+        char ch1 = str.charAt(1);
+        if (ch0 < 'a' || ch0 > 'z' || ch1 < 'a' || ch1 > 'z') {
+            throw new IllegalArgumentException("Invalid locale format: " + str);
+        }
+        if (len == 2) {
+            return new Locale(str, "");
+        } else {
+            if (str.charAt(2) != '_') {
+                throw new IllegalArgumentException("Invalid locale format: " + str);
+            }
+            char ch3 = str.charAt(3);
+            if (ch3 == '_') {
+                return new Locale(str.substring(0, 2), "", str.substring(4));
+            }
+            char ch4 = str.charAt(4);
+            if (ch3 < 'A' || ch3 > 'Z' || ch4 < 'A' || ch4 > 'Z') {
+                throw new IllegalArgumentException("Invalid locale format: " + str);
+            }
+            if (len == 5) {
+                return new Locale(str.substring(0, 2), str.substring(3, 5));
+            } else {
+                if (str.charAt(5) != '_') {
+                    throw new IllegalArgumentException("Invalid locale format: " + str);
+                }
+                return new Locale(str.substring(0, 2), str.substring(3, 5), str.substring(6));
+            }
+        }
+    }
 
     private UtteranceProgressListener createUtteranceProgressListener() {
         return new UtteranceProgressListener() {
@@ -311,8 +276,6 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
 
     @Kroll.method
     @SuppressWarnings({"rawtypes", "unchecked"})
-    @Kroll.method
-    @SuppressWarnings({"rawtypes", "unchecked"})
     public void startSpeaking(HashMap hm) {
         ensureTTSInitialized();
         if (_tts == null) {
@@ -327,47 +290,21 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         }
         _text = args.getString("text");
         _voice = "auto";
-        
         if (args.containsKeyAndNotNull("voice") || args.containsKeyAndNotNull("language")) {
             if (args.containsKeyAndNotNull("language")) {
                 _voice = args.getString("language");
             } else {
                 _voice = args.getString("voice");
             }
-            
             if (_voice != "auto") {
-                // Para API 21+, intentar establecer la voz directamente por nombre
-                if (android.os.Build.VERSION.SDK_INT >= 21) {
-                    try {
-                        java.util.Set<android.speech.tts.Voice> availableVoices = _tts.getVoices();
-                        if (availableVoices != null) {
-                            for (android.speech.tts.Voice voice : availableVoices) {
-                                if (voice.getName().equals(_voice)) {
-                                    _tts.setVoice(voice);
-                                    Log.d(_logName, "Voice set successfully: " + _voice);
-                                    break;
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        Log.w(_logName, "Could not set voice by name, falling back to locale: " + e.getMessage());
-                        // Fallback: intentar establecer por locale
-                        if (isLanguageAvailable(_voice)) {
-                            _tts.setLanguage(toLocale(_voice));
-                        }
-                    }
+                if (isLanguageAvailable(_voice)) {
+                    _tts.setLanguage(toLocale(_voice));
                 } else {
-                    // API < 21: usar el método tradicional
-                    if (isLanguageAvailable(_voice)) {
-                        _tts.setLanguage(toLocale(_voice));
-                    } else {
-                        Log.e(_logName, "Unsupported Language provided.");
-                    }
+                    Log.e(_logName, "Unsupported Language provided.");
                 }
             }
         }
-        
-        // Resto del código sin cambios...
+
         if (args.containsKeyAndNotNull("rate")) {
             double dRate = args.getDouble("rate");
             _tts.setSpeechRate((float) (dRate));
@@ -376,7 +313,7 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             double dPitch = args.getDouble("pitch");
             _tts.setPitch((float) (dPitch));
         }
-        
+
         // Use modern speak method (API 21+) or alternative for older versions
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             Bundle params = new Bundle();
@@ -496,7 +433,7 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             if (!initialized || !_initSuccess) {
                 Log.w(_logName, "TTS Engine not yet fully initialized - voices may not be available");
                 Log.i(_logName, "Recommendation: Wait a few seconds after creating Speech object before calling getModernVoices()");
-
+                
                 // Fire error event to notify JavaScript
                 if (hasListeners("voicesError")) {
                     _mainHandler.post(new Runnable() {
@@ -560,37 +497,9 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         }
     }
     
-    /**
-     * Get available voices asynchronously
-     * This method runs on a background thread and fires events when complete
-     */
-    @Kroll.method
-    public void getModernVoicesAsync() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                final Object[] voices = getModernVoices();
-                
-                _mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (voices.length > 0) {
-                            HashMap<String, Object> event = new HashMap<>();
-                            event.put("success", true);
-                            event.put("voices", voices);
-                            event.put("count", voices.length);
-                            fireEvent("voicesReady", event);
-                        } else {
-                            HashMap<String, Object> event = new HashMap<>();
-                            event.put("success", false);
-                            event.put("error", "Failed to retrieve voices");
-                            fireEvent("voicesError", event);
-                        }
-                    }
-                });
-            }
-        }).start();
-    }
+    // ELIMINADO: getModernVoicesAsync() 
+    // No exponemos este método para mantener la misma API que iOS
+    // getModernVoices() ya maneja la espera correctamente
 
     /**
      * Get available languages using modern Android API 21+ methods
