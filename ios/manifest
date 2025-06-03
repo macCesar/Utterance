@@ -6,7 +6,7 @@ version: 3.0.0
 apiversion: 2
 architectures: arm64 x86_64
 mac: false
-description: Titanium module for Apple's native Speech Synthesizer
+description: Titanium module for Apple's native Speech Synthesizer and Speech Recognition
 author: Benjamin Bahrenburg
 license: Apache 2.0
 copyright: Copyright (c) 2024 by Benjamin Bahrenburg(bencoding)

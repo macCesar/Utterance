@@ -10,6 +10,8 @@
 #import "TiBase.h"
 #import "TiHost.h"
 #import "TiUtils.h"
+#import "BencodingUtteranceSpeechToTextProxy.h"
+#import "BencodingUtteranceSpeechProxy.h"
 
 @implementation BencodingUtteranceModule
 
@@ -66,6 +68,28 @@
 -(NSNumber*) isSupported:(id)unused
 {
     return NUMBOOL(_isSupported);
+}
+
+#pragma mark Factory Methods
+
+/**
+ * Creates a new Speech proxy instance for Text-to-Speech functionality
+ * This method provides the factory method for creating TTS instances
+ * Usage: var speech = utterance.createSpeech();
+ */
+-(id)createSpeech:(id)args
+{
+    return [[BencodingUtteranceSpeechProxy alloc] _initWithPageContext:[self executionContext]];
+}
+
+/**
+ * Creates a new SpeechToText proxy instance for Speech-to-Text functionality
+ * This method provides the factory method for creating STT instances
+ * Usage: var speechToText = utterance.createSpeechToText();
+ */
+-(id)createSpeechToText:(id)args
+{
+    return [[BencodingUtteranceSpeechToTextProxy alloc] _initWithPageContext:[self executionContext]];
 }
 
 @end

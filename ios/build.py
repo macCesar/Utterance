@@ -28,7 +28,7 @@ def replace_vars(config,token):
 		idx2 = token.find(')',idx+2)
 		if idx2 == -1: break
 		key = token[idx+2:idx2]
-		if not config.has_key(key): break
+		if key not in config: break
 		token = token.replace('$(%s)' % key, config[key])
 		idx = token.find('$(')
 	return token
@@ -50,7 +50,7 @@ def read_ti_xcconfig():
 def generate_doc(config):
 	docdir = os.path.join(cwd,'documentation')
 	if not os.path.exists(docdir):
-		print "Couldn't find documentation file at: %s" % docdir
+		print("Couldn't find documentation file at: %s" % docdir)
 		return None
 
 	try:
@@ -107,11 +107,11 @@ def compile_js(manifest,config):
 	exports.close()
 
 def die(msg):
-	print msg
+	print(msg)
 	sys.exit(1)
 
 def warn(msg):
-	print "[WARN] %s" % msg
+	print("[WARN] %s" % msg)
 
 def validate_license():
 	c = open(os.path.join(cwd,'LICENSE')).read()
@@ -130,8 +130,8 @@ def validate_manifest():
 		key,value = line.split(':')
 		manifest[key.strip()]=value.strip()
 	for key in required_module_keys:
-		if not manifest.has_key(key): die("missing required manifest key '%s'" % key)
-		if module_defaults.has_key(key):
+		if key not in manifest: die("missing required manifest key '%s'" % key)
+		if key in module_defaults:
 			defvalue = module_defaults[key]
 			curvalue = manifest[key]
 			if curvalue==defvalue: warn("please update the manifest key: '%s' to a non-default value" % key)
@@ -171,7 +171,7 @@ def build_module(manifest,config):
 	rc = os.system("xcodebuild -sdk iphonesimulator -configuration Release")
 	if rc != 0:
 		die("xcodebuild failed")
-    # build the merged library using lipo
+	# build the merged library using lipo
 	moduleid = manifest['moduleid']
 	libpaths = ''
 	for libfile in glob_libfiles():
@@ -193,7 +193,7 @@ def package_module(manifest,mf,config):
 	docs = generate_doc(config)
 	if docs!=None:
 		for doc in docs:
-			for file, html in doc.iteritems():
+			for file, html in doc.items():
 				filename = string.replace(file,'.md','.html')
 				zf.writestr('%s/documentation/%s'%(modulepath,filename),html)
 	zip_dir(zf,'assets',modulepath,['.pyc','.js'])
@@ -220,4 +220,3 @@ if __name__ == '__main__':
 	build_module(manifest,config)
 	package_module(manifest,mf,config)
 	sys.exit(0)
-
