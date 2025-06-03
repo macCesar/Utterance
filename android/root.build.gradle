@@ -1,0 +1,59 @@
+/**
+ * Utterance Module - Custom Build Configuration
+ * This file defines custom dependency versions that won't be overwritten
+ * by Titanium SDK's build process.
+ */
+
+// Custom dependency versions (conservatively updated)
+project.ext {
+    // AndroidX Libraries - Updated conservatively
+    customAndroidXAppCompatVersion = '1.7.0'      // Stable, well-tested
+    customAndroidXCoreVersion = '1.13.1'          // Performance improvements
+    customAndroidXFragmentVersion = '1.8.2'       // Lifecycle improvements
+    customMaterialVersion = '1.12.0'              // Already current
+    customPlayServicesBaseVersion = '18.5.0'      // Security patches
+
+    // Kotlin version (matches what you set)
+    customKotlinVersion = '1.9.25'                // Latest stable 1.9.x
+
+    // NDK version (already current)
+    customNdkVersion = '27.0.12077973'
+
+    // Build tools versions
+    customGradlePluginVersion = '8.8.2'           // Already current
+    customGoogleServicesVersion = '4.4.1'         // Already current
+}
+
+// Override Titanium's default versions
+project.ext.tiAndroidXAppCompatLibVersion = project.ext.customAndroidXAppCompatVersion
+project.ext.tiAndroidXCoreLibVersion = project.ext.customAndroidXCoreVersion
+project.ext.tiAndroidXFragmentLibVersion = project.ext.customAndroidXFragmentVersion
+project.ext.tiMaterialLibVersion = project.ext.customMaterialVersion
+project.ext.tiPlayServicesBaseLibVersion = project.ext.customPlayServicesBaseVersion
+
+// Documentation of current versions for reference
+/*
+CURRENT DEPENDENCY VERSIONS (as of May 2025):
+=============================================
+
+STABLE VERSIONS USED:
+- Kotlin: 1.9.25 (latest stable 1.9.x)
+- AndroidX AppCompat: 1.7.0 (stable, well-tested)
+- AndroidX Core: 1.13.1 (performance improvements, stable)
+- AndroidX Fragment: 1.8.2 (lifecycle improvements)
+- Material Design: 1.12.0 (current stable)
+- Play Services Base: 18.5.0 (security patches)
+- NDK: 27.0.12077973 (latest)
+- Gradle Plugin: 8.8.2 (latest stable)
+
+RATIONALE FOR CONSERVATIVE APPROACH:
+- Maintains compatibility with existing Titanium apps
+- Uses well-tested versions in production environments
+- Provides security updates and performance improvements
+- Avoids bleeding-edge versions that might introduce regressions
+
+HOW THIS WORKS:
+- Defines custom versions in project.ext
+- Overrides Titanium's ti.constants.gradle variables
+- Gets loaded before ti.constants.gradle due to root.build.gradle precedence
+*/

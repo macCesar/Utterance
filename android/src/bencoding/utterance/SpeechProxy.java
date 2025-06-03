@@ -40,19 +40,35 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     public static final int SPEECH_BOUNDARY_WORD = 0;
     
     // ========================================
-    // v3.0+ Practical Speech Rate Constants (Android Optimized)
+    // v3.0+ Cross-Platform Speech Rate Constants (Perceptually Equivalent)
     // ========================================
-    // These constants provide useful speech rates optimized for Android (range ~0.1 - 3.0)
-    // Users can use these directly with the 'rate' property without platform conditionals
+    // These constants provide perceptually equivalent speech rates across iOS/Android
+    // Optimized for real-world user experience rather than mathematical equivalence
+    // iOS range: 0.0-1.0 | Android range: 0.1-3.0
     
     @Kroll.constant
-    public static final float VERY_SLOW_SPEECH_RATE = 0.4f;  // Very slow for accessibility/learning
+    public static final float VERY_SLOW_SPEECH_RATE = 0.4f;  // Very slow - perceptually equivalent to iOS 0.3f
     @Kroll.constant
-    public static final float SLOW_SPEECH_RATE = 0.7f;       // Slow for careful listening
+    public static final float SLOW_SPEECH_RATE = 0.6f;       // Slow - perceptually equivalent to iOS 0.45f
     @Kroll.constant
-    public static final float FAST_SPEECH_RATE = 1.6f;       // Fast for efficient reading
+    public static final float FAST_SPEECH_RATE = 1.3f;       // Fast - perceptually equivalent to iOS 0.75f
     @Kroll.constant
-    public static final float VERY_FAST_SPEECH_RATE = 2.2f;  // Very fast for quick consumption
+    public static final float VERY_FAST_SPEECH_RATE = 1.6f;  // Very fast - perceptually equivalent to iOS 0.9f
+    
+    // ========================================
+    // Mathematical Equivalence Constants (Optional/Advanced)
+    // ========================================
+    // For developers who prefer mathematical precision over perceptual equivalence
+    // Formula: android_value = 0.1 + (ios_value × 2.9)
+    
+    @Kroll.constant
+    public static final float MATH_VERY_SLOW_SPEECH_RATE = 0.475f;  // Exact math equivalent to iOS 0.125f
+    @Kroll.constant
+    public static final float MATH_SLOW_SPEECH_RATE = 0.825f;       // Exact math equivalent to iOS 0.25f
+    @Kroll.constant
+    public static final float MATH_FAST_SPEECH_RATE = 1.875f;       // Exact math equivalent to iOS 0.625f
+    @Kroll.constant
+    public static final float MATH_VERY_FAST_SPEECH_RATE = 2.275f;  // Exact math equivalent to iOS 0.75f
     private final String _logName = UtteranceModule.MODULE_FULL_NAME;
     private TextToSpeech _tts = null;
     private String _text = "";
@@ -407,6 +423,9 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     @SuppressWarnings("rawtypes")
     public void pauseSpeaking(@Kroll.argument(optional = true) HashMap hm) {
         Log.d(_logName, "Android does not support pauseSpeaking, this method is for parity only");
+        
+        // Disparar evento 'paused' para mantener la consistencia de comportamiento con iOS
+        doListener("paused");
     }
     
     @Kroll.method
@@ -435,6 +454,17 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             _isSpeakingProperty = false; // Actualizar la propiedad para consistencia entre plataformas
         }
         doListener("stopped");
+    }
+    
+    @Kroll.method
+    public void cancelSpeaking() {
+        ensureTTSInitialized();
+        if (_tts != null && _tts.isSpeaking()) {
+            _tts.stop();
+            _isSpeakingProperty = false; // Actualizar la propiedad para consistencia entre plataformas
+        }
+        // Disparar evento 'canceled' para mantener la consistencia de comportamiento con iOS
+        doListener("canceled");
     }
 
 

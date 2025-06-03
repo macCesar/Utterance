@@ -36,4 +36,3 @@ public class UtteranceModule extends KrollModule {
         return (Build.VERSION.SDK_INT > 18);
     }
 }
-
