@@ -67,8 +67,38 @@
 
 -(NSNumber*) isSupported:(id)unused
 {
-    return NUMBOOL(_isSupported);
+    // iOS 7+ is required for AVSpeechSynthesizer
+    return @([[[UIDevice currentDevice] systemVersion] floatValue] >= 7.0);
 }
+
+-(NSNumber*)isModernTTSSupported:(id)unused
+{
+    // In iOS, all modern features are available from iOS 7
+    return [self isSupported:nil];
+}
+
+-(NSNumber*)isSpeechRecognitionAvailable:(id)unused
+{
+    // Speech recognition requires iOS 10+
+    if (@available(iOS 10.0, *)) {
+        return @YES;
+    }
+    return @NO;
+}
+
+-(NSNumber*)getApiLevel:(id)unused
+{
+    // iOS doesn't have API levels like Android, return major version
+    return @([[[UIDevice currentDevice] systemVersion] intValue]);
+}
+
+-(NSString*)getIOSVersion:(id)unused
+{
+    return [[UIDevice currentDevice] systemVersion];
+}
+
+// Module version constant
+MAKE_SYSTEM_STR(MODULE_VERSION, @"3.0.0");
 
 #pragma mark Factory Methods
 

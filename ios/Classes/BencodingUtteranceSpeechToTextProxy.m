@@ -53,7 +53,7 @@
 
 #pragma mark Public API Methods
 
-- (NSNumber *)isSupport:(id)unused
+- (NSNumber *)isSupported:(id)unused
 {
     return @(_isSupported);
 }

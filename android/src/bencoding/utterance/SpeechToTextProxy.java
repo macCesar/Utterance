@@ -53,8 +53,14 @@ public class SpeechToTextProxy extends KrollProxy implements TiActivityResultHan
 
     @Kroll.method
     @Kroll.getProperty
-    public Boolean isSupport() {
+    public Boolean isSupported() {
         return _isSupported;
+    }
+
+    @Kroll.method
+    @Deprecated
+    public Boolean isSupport() {
+        return isSupported();
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

@@ -25,7 +25,7 @@
 @property(nonatomic, strong) AVAudioEngine *audioEngine;
 
 // Public API Methods (matching Android API for consistency)
-- (NSNumber *)isSupport:(id)unused;
+- (NSNumber *)isSupported:(id)unused;
 - (void)startSpeechToText:(id)args;
 - (void)stopRecording:(id)unused;
 
