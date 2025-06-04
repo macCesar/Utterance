@@ -224,6 +224,12 @@ int const cSpeechBoundaryWord = 1;
 	return NUMBOOL(_isSpeaking);
 }
 
+// v3.0 Unified API: Method version for Android compatibility
+- (NSNumber *)isSpeaking:(id)args
+{
+    return NUMBOOL(_isSpeaking);
+}
+
 -(void) doCallListener:(NSString*)name
 {
     if ([self _hasListeners:name]) {
@@ -291,22 +297,22 @@ MAKE_SYSTEM_PROP(SPEECH_BOUNDARY_WORD,cSpeechBoundaryWord);
 
 -(NSNumber*)VERY_SLOW_SPEECH_RATE
 {
-    return [NSNumber numberWithFloat:0.3f]; // Very slow - perceptually equivalent to Android 0.4f
+    return [NSNumber numberWithFloat:0.25f]; // Reduced from 0.3f - perceptually equivalent to Android 0.4f
 }
 
 -(NSNumber*)SLOW_SPEECH_RATE
 {
-    return [NSNumber numberWithFloat:0.45f];  // Slow - perceptually equivalent to Android 0.6f
+    return [NSNumber numberWithFloat:0.35f];  // Reduced from 0.45f - perceptually equivalent to Android 0.6f
 }
 
 -(NSNumber*)FAST_SPEECH_RATE
 {
-    return [NSNumber numberWithFloat:0.75f];  // Fast - perceptually equivalent to Android 1.3f
+    return [NSNumber numberWithFloat:0.55f];  // Reduced from 0.75f - perceptually equivalent to Android 1.3f
 }
 
 -(NSNumber*)VERY_FAST_SPEECH_RATE
 {
-    return [NSNumber numberWithFloat:0.9f]; // Very fast - perceptually equivalent to Android 1.6f
+    return [NSNumber numberWithFloat:0.65f]; // Reduced from 0.9f - perceptually equivalent to Android 1.6f
 }
 
 // ========================================

@@ -299,6 +299,12 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     }
 
     @Kroll.method
+    public boolean isSupported() {
+        // TTS is always supported on Android devices
+        return true;
+    }
+
+    @Kroll.method
     public boolean isLanguageAvailable(String language) {
         ensureTTSInitialized();
         if (_tts == null) {

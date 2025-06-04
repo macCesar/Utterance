@@ -19,4 +19,8 @@
   NSString *_voice;
 }
 @property(strong, nonatomic) AVSpeechSynthesizer *speechSynthesizer;
+
+// v3.0 Unification: Add method version for Android compatibility
+- (NSNumber *)isSpeaking:(id)args;
+
 @end
