@@ -76,14 +76,35 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     private boolean _initSuccess = false;
     private boolean _isSpeakingProperty = false;
     private Handler _mainHandler = new Handler(Looper.getMainLooper());
+    
+    // ✅ NUEVAS propiedades para optimización v1.0.0 híbrida
+    private boolean _isReady = false;
+    private boolean _isInitializing = false;
 
     public SpeechProxy() {
         super();
+        // ✅ COMO v1.0.0: Inicializar inmediatamente pero después del constructor
+        // Evitar 'this-escape' warning usando Handler.post()
+        _mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                initializeTTSImmediate();
+            }
+        });
     }
 
     private void initializeTTS() {
         if (_tts == null && !_isInitialized) {
             _isInitialized = true;
+            _initLatch = new CountDownLatch(1);
+            _tts = new TextToSpeech(TiApplication.getInstance().getApplicationContext(), this);
+        }
+    }
+    
+    // ✅ NUEVO: Método de inicialización inmediata como v1.0.0
+    private void initializeTTSImmediate() {
+        if (_tts == null && !_isInitializing) {
+            _isInitializing = true;
             _initLatch = new CountDownLatch(1);
             _tts = new TextToSpeech(TiApplication.getInstance().getApplicationContext(), this);
         }
@@ -171,22 +192,24 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         return new UtteranceProgressListener() {
             @Override
             public void onStart(String utteranceId) {
-                Log.d(_logName, "utterance started");
+                Log.d(_logName, "TTS Engine: utterance started");
                 _isSpeakingProperty = true;
+                // ✅ EVENTO REAL del motor TTS
                 doListener("started");
             }
 
             @Override
             public void onDone(String utteranceId) {
-                Log.d(_logName, "utterance completed");
+                Log.d(_logName, "TTS Engine: utterance completed");
                 _isSpeakingProperty = false;
+                // ✅ EVENTO REAL del motor TTS
                 doListener("completed");
             }
 
             @Override
             @SuppressWarnings("deprecation")
             public void onError(String utteranceId) {
-                Log.e(_logName, "utterance error");
+                Log.e(_logName, "TTS Engine: utterance error");
                 _isSpeakingProperty = false;
                 if (hasListeners("completed")) {
                     HashMap<String, Object> event = new HashMap<String, Object>();
@@ -200,7 +223,8 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
 
             @Override
             public void onError(String utteranceId, int errorCode) {
-                Log.e(_logName, "utterance error with code: " + errorCode);
+                Log.e(_logName, "TTS Engine: utterance error with code: " + errorCode);
+                _isSpeakingProperty = false;
                 if (hasListeners("completed")) {
                     HashMap<String, Object> event = new HashMap<String, Object>();
                     event.put("success", false);
@@ -220,6 +244,8 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             if (status == TextToSpeech.LANG_MISSING_DATA || status == TextToSpeech.LANG_NOT_SUPPORTED) {
                 Log.e(_logName, "This Language is not supported");
                 _initSuccess = false;
+                _isReady = false;
+                _isInitializing = false;
                 _initLatch.countDown();
 
                 if (hasListeners("completed")) {
@@ -234,6 +260,8 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
 
             if (status == TextToSpeech.SUCCESS) {
                 _initSuccess = true;
+                _isReady = true;
+                _isInitializing = false;
                 _tts.setOnUtteranceProgressListener(createUtteranceProgressListener());
 
                 // Get default voice information
@@ -251,6 +279,8 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             }
         } catch (Exception error) {
             _initSuccess = false;
+            _isReady = false;
+            _isInitializing = false;
             _initLatch.countDown();
 
             if (hasListeners("completed")) {
@@ -329,36 +359,49 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             return;
         }
 
-        // If TTS is not ready, wait on a separate thread
-        if (!_initSuccess || _initLatch.getCount() > 0) {
-            Log.i(_logName, "TTS not ready, queuing speech request...");
+        // ✅ OPTIMIZACIÓN: Si TTS está listo, ejecutar inmediatamente (como v1.0.0)
+        if (_tts != null && _isReady) {
+            doStartSpeakingImmediate(args);
+            return;
+        }
 
+        // ✅ FALLBACK: Si no está listo, usar el método v3.0.0 pero más rápido
+        if (_tts != null && !_isReady) {
+            Log.i(_logName, "TTS not ready, waiting briefly...");
+            // En lugar de 5 segundos, esperar máximo 1 segundo
             new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    try {
-                        // Esperar hasta 5 segundos para la inicialización
-                        boolean initialized = _initLatch.await(5, TimeUnit.SECONDS);
-                        if (initialized && _initSuccess) {
-                            // Ejecutar en el hilo principal
+                    for (int i = 0; i < 10; i++) {
+                        if (_isReady) {
                             _mainHandler.post(new Runnable() {
                                 @Override
                                 public void run() {
-                                    doStartSpeaking(args);
+                                    doStartSpeakingImmediate(args);
                                 }
                             });
-                        } else {
-                            Log.e(_logName, "TTS initialization failed or timed out");
+                            return;
                         }
-                    } catch (InterruptedException e) {
-                        Log.e(_logName, "Interrupted while waiting for TTS initialization");
-                        Thread.currentThread().interrupt();
+                        try { 
+                            Thread.sleep(100); 
+                        } catch (InterruptedException e) { 
+                            Thread.currentThread().interrupt();
+                            break; 
+                        }
                     }
+                    // Si no está listo en 1 segundo, intentar de todos modos
+                    _mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            doStartSpeakingForced(args);
+                        }
+                    });
                 }
             }).start();
         } else {
-            // TTS ya está listo, ejecutar inmediatamente
-            doStartSpeaking(args);
+            // TTS no existe, crearlo y intentar
+            initializeTTSImmediate();
+            doStartSpeakingForced(args);
         }
     }
 
@@ -427,7 +470,8 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             Bundle params = new Bundle();
             params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "FINISHED_PLAYING");
             _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, params, "FINISHED_PLAYING");
-            _isSpeakingProperty = true;
+            // ❌ REMOVIDO: _isSpeakingProperty = true; 
+            // ✅ Ahora el estado se actualiza solo cuando el TTS real inicia (onStart)
         } else {
             @SuppressWarnings("deprecation")
             HashMap<String, String> options = new HashMap<String, String>();
@@ -436,8 +480,133 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             int result = _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, options);
             if (result == TextToSpeech.ERROR) {
                 Log.e(_logName, "Error starting speech synthesis");
+                // Solo en caso de error inmediato, disparar evento
+                if (hasListeners("completed")) {
+                    HashMap<String, Object> event = new HashMap<String, Object>();
+                    event.put("success", false);
+                    event.put("message", "Failed to start speech synthesis");
+                    event.put("text", _text);
+                    event.put("voice", _voice);
+                    fireEvent("completed", event);
+                }
+            }
+            // ❌ REMOVIDO: _isSpeakingProperty = true;
+            // ✅ Ahora el estado se actualiza solo cuando el TTS real inicia (onStart)
+        }
+    }
+
+    // ✅ NUEVO: Método de ejecución inmediata como v1.0.0
+    private void doStartSpeakingImmediate(KrollDict args) {
+        _text = args.getString("text");
+        _voice = "auto";
+
+        if (args.containsKeyAndNotNull("voice") || args.containsKeyAndNotNull("language")) {
+            if (args.containsKeyAndNotNull("language")) {
+                _voice = args.getString("language");
+                Log.d(_logName, "Language argument: " + args.getString("_voice"));
+
+                // ✅ ANDROID NORMALIZATION: Convert iOS format (es-MX) to Android format (es_MX)
+                _voice = _voice.replace("-", "_");
+                Log.d(_logName, "Language argument (normalized): " + args.getString("_voice"));
             } else {
-                _isSpeakingProperty = true;
+                _voice = args.getString("voice");
+                Log.d(_logName, "Voice argument: " + _voice);
+            }
+
+            if (!_voice.equals("auto")) {
+                // Para API 21+, intentar establecer la voz directamente por nombre
+                if (android.os.Build.VERSION.SDK_INT >= 21) {
+                    try {
+                        java.util.Set<android.speech.tts.Voice> availableVoices = _tts.getVoices();
+                        if (availableVoices != null) {
+                            boolean voiceFound = false;
+                            for (android.speech.tts.Voice voice : availableVoices) {
+                                if (voice.getName().equals(_voice)) {
+                                    _tts.setVoice(voice);
+                                    Log.d(_logName, "Voice set successfully: " + _voice);
+                                    voiceFound = true;
+                                    break;
+                                }
+                            }
+                            if (!voiceFound) {
+                                // Fallback: intentar establecer por locale
+                                if (isLanguageAvailable(_voice)) {
+                                    _tts.setLanguage(toLocale(_voice));
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.w(_logName, "Could not set voice by name, falling back to locale: " + e.getMessage());
+                        // Fallback: intentar establecer por locale
+                        if (isLanguageAvailable(_voice)) {
+                            _tts.setLanguage(toLocale(_voice));
+                        }
+                    }
+                } else {
+                    // API < 21: usar el método tradicional
+                    if (isLanguageAvailable(_voice)) {
+                        _tts.setLanguage(toLocale(_voice));
+                    } else {
+                        Log.e(_logName, "Unsupported Language provided.");
+                    }
+                }
+            }
+        }
+
+        if (args.containsKeyAndNotNull("rate")) {
+            double dRate = args.getDouble("rate");
+            _tts.setSpeechRate((float) dRate);
+        }
+        
+        if (args.containsKeyAndNotNull("pitch")) {
+            double dPitch = args.getDouble("pitch");
+            _tts.setPitch((float) dPitch);
+        }
+
+        // ✅ v3.0.0: Usar API moderna
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            Bundle params = new Bundle();
+            params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "FINISHED_PLAYING");
+            _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, params, "FINISHED_PLAYING");
+        } else {
+            // ✅ v1.0.0: Fallback para dispositivos antiguos
+            @SuppressWarnings("deprecation")
+            HashMap<String, String> options = new HashMap<String, String>();
+            options.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "FINISHED_PLAYING");
+            @SuppressWarnings("deprecation")
+            int result = _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, options);
+            if (result == TextToSpeech.ERROR) {
+                Log.e(_logName, "Error starting speech synthesis");
+                if (hasListeners("completed")) {
+                    HashMap<String, Object> event = new HashMap<String, Object>();
+                    event.put("success", false);
+                    event.put("message", "Failed to start speech synthesis");
+                    event.put("text", _text);
+                    event.put("voice", _voice);
+                    fireEvent("completed", event);
+                }
+            }
+            // ✅ COMO v1.0.0: Evento inmediato para responsividad en API antiguos
+            else {
+                // Disparar evento started solo para API < 21 (compatibilidad v1.0.0)
+                doListener("started");
+            }
+        }
+    }
+
+    // ✅ NUEVO: Método forzado para casos edge
+    private void doStartSpeakingForced(KrollDict args) {
+        try {
+            doStartSpeakingImmediate(args);
+        } catch (Exception e) {
+            Log.e(_logName, "Forced speech failed: " + e.getMessage());
+            if (hasListeners("completed")) {
+                HashMap<String, Object> event = new HashMap<String, Object>();
+                event.put("success", false);
+                event.put("message", "Speech initialization failed");
+                event.put("text", _text);
+                event.put("voice", _voice);
+                fireEvent("completed", event);
             }
         }
     }
@@ -446,20 +615,47 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     @SuppressWarnings("rawtypes")
     public void pauseSpeaking(@Kroll.argument(optional = true) HashMap hm) {
         Log.d(_logName, "Android does not support pauseSpeaking, this method is for parity only");
-        doListener("paused");
+        // ❌ REMOVIDO: doListener("paused");
+        // ✅ Android no soporta pause real, no disparar eventos falsos
+        if (hasListeners("paused")) {
+            HashMap<String, Object> event = new HashMap<String, Object>();
+            event.put("success", false);
+            event.put("message", "Pause not supported on Android");
+            event.put("text", _text);
+            event.put("voice", _voice);
+            fireEvent("paused", event);
+        }
     }
 
     @Kroll.method
     @SuppressWarnings("rawtypes")
     public void continueSpeaking(@Kroll.argument(optional = true) HashMap hm) {
         Log.d(_logName, "Android does not support continueSpeaking, this method is for parity only");
-        doListener("continued");
+        // ❌ REMOVIDO: doListener("continued");
+        // ✅ Android no soporta continue real, no disparar eventos falsos
+        if (hasListeners("continued")) {
+            HashMap<String, Object> event = new HashMap<String, Object>();
+            event.put("success", false);
+            event.put("message", "Continue not supported on Android");
+            event.put("text", _text);
+            event.put("voice", _voice);
+            fireEvent("continued", event);
+        }
     }
 
     @Kroll.method
     public void continueSpeaking() {
         Log.d(_logName, "Android does not support continueSpeaking, this method is for parity only");
-        doListener("continued");
+        // ❌ REMOVIDO: doListener("continued");
+        // ✅ Android no soporta continue real, no disparar eventos falsos
+        if (hasListeners("continued")) {
+            HashMap<String, Object> event = new HashMap<String, Object>();
+            event.put("success", false);
+            event.put("message", "Continue not supported on Android");
+            event.put("text", _text);
+            event.put("voice", _voice);
+            fireEvent("continued", event);
+        }
     }
 
     @Kroll.method
@@ -468,9 +664,22 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         ensureTTSInitialized();
         if (_tts != null && _tts.isSpeaking()) {
             _tts.stop();
+            // ❌ REMOVIDO: _isSpeakingProperty = false;
+            // ❌ REMOVIDO: doListener("stopped");
+            // ✅ El evento "stopped" debería dispararse via onDone() cuando el TTS realmente se detenga
+            Log.d(_logName, "TTS stop() called - waiting for onDone() callback");
+        } else {
+            // Si no estaba hablando, disparar evento inmediatamente
             _isSpeakingProperty = false;
+            if (hasListeners("stopped")) {
+                HashMap<String, Object> event = new HashMap<String, Object>();
+                event.put("success", true);
+                event.put("speaking", false);
+                event.put("text", _text);
+                event.put("voice", _voice);
+                fireEvent("stopped", event);
+            }
         }
-        doListener("stopped");
     }
 
     @Kroll.method
@@ -478,9 +687,22 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         ensureTTSInitialized();
         if (_tts != null && _tts.isSpeaking()) {
             _tts.stop();
+            // ❌ REMOVIDO: _isSpeakingProperty = false;
+            // ❌ REMOVIDO: doListener("canceled");
+            // ✅ El evento "canceled" debería dispararse via onDone() cuando el TTS realmente se cancele
+            Log.d(_logName, "TTS stop() called for cancel - waiting for onDone() callback");
+        } else {
+            // Si no estaba hablando, disparar evento inmediatamente
             _isSpeakingProperty = false;
+            if (hasListeners("canceled")) {
+                HashMap<String, Object> event = new HashMap<String, Object>();
+                event.put("success", true);
+                event.put("speaking", false);
+                event.put("text", _text);
+                event.put("voice", _voice);
+                fireEvent("canceled", event);
+            }
         }
-        doListener("canceled");
     }
 
     @Override
