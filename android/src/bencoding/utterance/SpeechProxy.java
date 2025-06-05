@@ -28,24 +28,24 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Kroll.proxy(creatableInModule = UtteranceModule.class)
 public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEvent, KrollProxyListener, OnInitListener {
     //Add properties for iOS compatability - FIXED VALUES v3.0+
     @Kroll.constant
-    public static final float DEFAULT_SPEECH_RATE = 1.0f; // Android normal speed
+    public static final float DEFAULT_SPEECH_RATE = 1.0f;
     @Kroll.constant
-    public static final float MIN_SPEECH_RATE = 0.1f; // Android minimum practical speed
+    public static final float MIN_SPEECH_RATE = 0.1f;
     @Kroll.constant
-    public static final float MAX_SPEECH_RATE = 3.0f; // Android maximum practical speed
+    public static final float MAX_SPEECH_RATE = 3.0f;
     @Kroll.constant
     public static final int SPEECH_BOUNDARY_IMMEDIATE = 0;
     @Kroll.constant
     public static final int SPEECH_BOUNDARY_WORD = 0;
 
-    // ========================================
-    // v3.0+ Cross-Platform Speech Rate Constants (Perceptually Equivalent)
-    // ========================================
+    // Cross-Platform Speech Rate Constants
     @Kroll.constant
     public static final float VERY_SLOW_SPEECH_RATE = 0.4f;
     @Kroll.constant
@@ -55,9 +55,7 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     @Kroll.constant
     public static final float VERY_FAST_SPEECH_RATE = 1.6f;
 
-    // ========================================
-    // Mathematical Equivalence Constants (Optional/Advanced)
-    // ========================================
+    // Mathematical Equivalence Constants
     @Kroll.constant
     public static final float MATH_VERY_SLOW_SPEECH_RATE = 0.475f;
     @Kroll.constant
@@ -71,729 +69,749 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     private TextToSpeech _tts = null;
     private String _text = "";
     private String _voice = "";
-    private boolean _isInitialized = false;
-    private CountDownLatch _initLatch = new CountDownLatch(1);
-    private boolean _initSuccess = false;
-    private boolean _isSpeakingProperty = false;
-    private Handler _mainHandler = new Handler(Looper.getMainLooper());
-    
-    // ✅ NUEVAS propiedades para optimización v1.0.0 híbrida
-    private boolean _isReady = false;
-    private boolean _isInitializing = false;
+    private final CountDownLatch _initLatch = new CountDownLatch(1);
+    private final AtomicBoolean _initSuccess = new AtomicBoolean(false);
+    private final AtomicBoolean _isSpeakingProperty = new AtomicBoolean(false);
+    private final Handler _mainHandler = new Handler(Looper.getMainLooper());
+
+    // OPTIMIZACIÓN: Estados mejorados para mejor control
+    private final AtomicBoolean _isReady = new AtomicBoolean(false);
+    private final AtomicBoolean _isInitializing = new AtomicBoolean(false);
+    private final AtomicBoolean _isStopping = new AtomicBoolean(false);
+    private final AtomicBoolean _isCanceling = new AtomicBoolean(false);
+
+    // OPTIMIZACIÓN: Contador de utterances para tracking único
+    private final AtomicInteger _utteranceCounter = new AtomicInteger(0);
+    private volatile String _currentUtteranceId = null;
+
+    // OPTIMIZACIÓN: Cache de configuración actual
+    private volatile float _currentRate = DEFAULT_SPEECH_RATE;
+    private volatile float _currentPitch = 1.0f;
+    private volatile Locale _currentLocale = null;
+
+    // OPTIMIZACIÓN: Límite de tiempo para operaciones
+    private static final long INIT_TIMEOUT_MS = 2000;
+    private static final long STOP_TIMEOUT_MS = 500;
 
     public SpeechProxy() {
         super();
-        // ✅ COMO v1.0.0: Inicializar inmediatamente pero después del constructor
-        // Evitar 'this-escape' warning usando Handler.post()
+        // Inicializar inmediatamente pero de forma segura
         _mainHandler.post(new Runnable() {
             @Override
             public void run() {
-                initializeTTSImmediate();
+                initializeTTSOptimized();
             }
         });
     }
 
-    private void initializeTTS() {
-        if (_tts == null && !_isInitialized) {
-            _isInitialized = true;
-            _initLatch = new CountDownLatch(1);
-            _tts = new TextToSpeech(TiApplication.getInstance().getApplicationContext(), this);
-        }
-    }
-    
-    // ✅ NUEVO: Método de inicialización inmediata como v1.0.0
-    private void initializeTTSImmediate() {
-        if (_tts == null && !_isInitializing) {
-            _isInitializing = true;
-            _initLatch = new CountDownLatch(1);
-            _tts = new TextToSpeech(TiApplication.getInstance().getApplicationContext(), this);
-        }
-    }
-
-    private void ensureTTSInitialized() {
-        if (_tts == null) {
-            initializeTTS();
+    /**
+     * OPTIMIZACIÓN: Inicialización mejorada con mejor manejo de estados
+     */
+    private void initializeTTSOptimized() {
+        if (_tts == null && _isInitializing.compareAndSet(false, true)) {
+            Log.d(_logName, "Starting optimized TTS initialization");
+            try {
+                _tts = new TextToSpeech(TiApplication.getInstance().getApplicationContext(), this);
+            } catch (Exception e) {
+                Log.e(_logName, "Failed to initialize TTS: " + e.getMessage());
+                _isInitializing.set(false);
+                _initLatch.countDown();
+            }
         }
     }
 
+    /**
+     * OPTIMIZACIÓN: Espera inteligente para inicialización
+     */
+    private boolean waitForInit(long timeoutMs) {
+        try {
+            return _initLatch.await(timeoutMs, TimeUnit.MILLISECONDS) && _initSuccess.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    /**
+     * OPTIMIZACIÓN: Verificación rápida de estado
+     */
+    private boolean isReadyForSpeech() {
+        return _tts != null && _isReady.get() && !_isStopping.get() && !_isCanceling.get();
+    }
+
+    /**
+     * OPTIMIZACIÓN: Conversión de locale mejorada con cache
+     */
     public static Locale toLocale(String str) {
-        if (str == null) {
-            return null;
-        }
+      if (str == null || str.isEmpty()) {
+          return Locale.getDefault();
+      }
 
-        // For Android API 21+, handle modern voice identifiers
-        if (android.os.Build.VERSION.SDK_INT >= 21 && str.contains("-x-")) {
-            // Modern format: es-us-x-sfb-network
-            // Extract only the language part: es_US
-            String[] parts = str.split("-x-");
-            if (parts.length > 0) {
-                String langPart = parts[0];
-                String[] langComponents = langPart.split("-");
-                if (langComponents.length >= 2) {
-                    // Convert es-us to es_US
-                    return new Locale(langComponents[0], langComponents[1].toUpperCase());
-                } else if (langComponents.length == 1) {
-                    return new Locale(langComponents[0]);
-                }
-            }
-        }
+      // Cache simple para locales comunes
+      switch (str) {
+          case "en_US":
+          case "en-US":
+              return Locale.US;
+          case "en_GB":
+          case "en-GB":
+              return Locale.UK;
+          case "es_ES":
+          case "es-ES":
+              return new Locale("es", "ES");
+          case "es_MX":
+          case "es-MX":
+              return new Locale("es", "MX");
+      }
 
-        // Original logic for traditional formats
-        int len = str.length();
-        if (len != 2 && len != 5 && len < 7) {
-            // Don't throw exception, try to parse more flexibly
-            if (str.contains("_")) {
-                String[] parts = str.split("_");
-                if (parts.length >= 2) {
-                    return new Locale(parts[0], parts[1]);
-                } else if (parts.length == 1) {
-                    return new Locale(parts[0]);
-                }
-            }
-            return Locale.getDefault();
-        }
+      // Manejo de formato moderno de Android (API 21+)
+      if (android.os.Build.VERSION.SDK_INT >= 21 && str.contains("-x-")) {
+          String[] parts = str.split("-x-");
+          if (parts.length > 0) {
+              String langPart = parts[0];
+              String[] langComponents = langPart.split("-");
+              if (langComponents.length >= 2) {
+                  return new Locale(langComponents[0], langComponents[1].toUpperCase());
+              } else if (langComponents.length == 1) {
+                  return new Locale(langComponents[0]);
+              }
+          }
+      }
 
-        char ch0 = str.charAt(0);
-        char ch1 = str.charAt(1);
-        if (ch0 < 'a' || ch0 > 'z' || ch1 < 'a' || ch1 > 'z') {
-            // Don't throw exception, use default locale
-            return Locale.getDefault();
-        }
+      // Normalización rápida de formato iOS a Android
+      if (str.contains("-")) {
+          String[] parts = str.split("-");
+          if (parts.length >= 2) {
+              return new Locale(parts[0], parts[1].toUpperCase());
+          } else if (parts.length == 1) {
+              return new Locale(parts[0]);
+          }
+      }
 
-        if (len == 2) {
-            return new Locale(str, "");
-        } else {
-            if (str.charAt(2) != '_') {
-                // Don't throw exception, use default locale
-                return Locale.getDefault();
-            }
-            char ch3 = str.charAt(3);
-            if (ch3 == '_') {
-                return new Locale(str.substring(0, 2), "", str.substring(4));
-            }
-            char ch4 = str.charAt(4);
-            if (ch3 < 'A' || ch3 > 'Z' || ch4 < 'A' || ch4 > 'Z') {
-                // Don't throw exception, use default locale
-                return Locale.getDefault();
-            }
-            if (len == 5) {
-                return new Locale(str.substring(0, 2), str.substring(3, 5));
-            } else {
-                if (str.charAt(5) != '_') {
-                    // Don't throw exception, use default locale
-                    return Locale.getDefault();
-                }
-                return new Locale(str.substring(0, 2), str.substring(3, 5), str.substring(6));
-            }
-        }
-    }
+      // Formato tradicional con underscore
+      if (str.contains("_")) {
+          String[] parts = str.split("_");
+          if (parts.length >= 2) {
+              return new Locale(parts[0], parts[1]);
+          } else if (parts.length == 1) {
+              return new Locale(parts[0]);
+          }
+      }
 
-    private UtteranceProgressListener createUtteranceProgressListener() {
-        return new UtteranceProgressListener() {
-            @Override
-            public void onStart(String utteranceId) {
-                Log.d(_logName, "TTS Engine: utterance started");
-                _isSpeakingProperty = true;
-                // ✅ EVENTO REAL del motor TTS
-                doListener("started");
-            }
+      // Intento de parseo simple
+      if (str.length() == 2) {
+          return new Locale(str);
+      }
 
-            @Override
-            public void onDone(String utteranceId) {
-                Log.d(_logName, "TTS Engine: utterance completed");
-                _isSpeakingProperty = false;
-                // ✅ EVENTO REAL del motor TTS
-                doListener("completed");
-            }
+      return Locale.getDefault();
+  }
 
-            @Override
-            @SuppressWarnings("deprecation")
-            public void onError(String utteranceId) {
-                Log.e(_logName, "TTS Engine: utterance error");
-                _isSpeakingProperty = false;
-                if (hasListeners("completed")) {
-                    HashMap<String, Object> event = new HashMap<String, Object>();
-                    event.put("success", false);
-                    event.put("message", "Speech synthesis error");
-                    event.put("text", _text);
-                    event.put("voice", _voice);
-                    fireEvent("completed", event);
-                }
-            }
+  /**
+   * OPTIMIZACIÓN: UtteranceProgressListener mejorado con mejor manejo de estados
+   */
+  private UtteranceProgressListener createOptimizedUtteranceProgressListener() {
+      return new UtteranceProgressListener() {
+          @Override
+          public void onStart(String utteranceId) {
+              Log.d(_logName, "TTS Engine: utterance started - " + utteranceId);
+              _isSpeakingProperty.set(true);
+              _currentUtteranceId = utteranceId;
 
-            @Override
-            public void onError(String utteranceId, int errorCode) {
-                Log.e(_logName, "TTS Engine: utterance error with code: " + errorCode);
-                _isSpeakingProperty = false;
-                if (hasListeners("completed")) {
-                    HashMap<String, Object> event = new HashMap<String, Object>();
-                    event.put("success", false);
-                    event.put("message", "Speech synthesis error (code: " + errorCode + ")");
-                    event.put("text", _text);
-                    event.put("voice", _voice);
-                    event.put("errorCode", errorCode);
-                    fireEvent("completed", event);
-                }
-            }
-        };
-    }
+              // Reset de flags de control
+              _isStopping.set(false);
+              _isCanceling.set(false);
 
-    @Override
-    public void onInit(int status) {
-        try {
-            if (status == TextToSpeech.LANG_MISSING_DATA || status == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Log.e(_logName, "This Language is not supported");
-                _initSuccess = false;
-                _isReady = false;
-                _isInitializing = false;
-                _initLatch.countDown();
+              fireEventAsync("started", true, "Speech started");
+          }
 
-                if (hasListeners("completed")) {
-                    HashMap<String, Object> event = new HashMap<String, Object>();
-                    event.put("success", false);
-                    event.put("message", "This Language is not supported");
-                    event.put("text", _text);
-                    event.put("voice", _voice);
-                    fireEvent("completed", event);
-                }
-            }
+          @Override
+          public void onDone(String utteranceId) {
+              Log.d(_logName, "TTS Engine: utterance completed - " + utteranceId);
+              _isSpeakingProperty.set(false);
 
-            if (status == TextToSpeech.SUCCESS) {
-                _initSuccess = true;
-                _isReady = true;
-                _isInitializing = false;
-                _tts.setOnUtteranceProgressListener(createUtteranceProgressListener());
+              // CLAVE: Solo disparar eventos si este utterance es el actual
+              // Esto evita conflictos cuando se hace stop+start rápido
+              if (utteranceId != null && utteranceId.equals(_currentUtteranceId)) {
+                  // Determinar qué evento disparar basado en el estado
+                  if (_isCanceling.get()) {
+                      _isCanceling.set(false);
+                      fireEventAsync("canceled", true, "Speech canceled");
+                  } else if (_isStopping.get()) {
+                      _isStopping.set(false);
+                      fireEventAsync("stopped", true, "Speech stopped");
+                  } else {
+                      fireEventAsync("completed", true, "Speech completed");
+                  }
+                  _currentUtteranceId = null;
+              } else {
+                  Log.d(_logName, "Ignoring onDone for old utterance: " + utteranceId + " (current: " + _currentUtteranceId + ")");
+              }
+          }
 
-                // Get default voice information
-                if (android.os.Build.VERSION.SDK_INT >= 21) {
-                    android.speech.tts.Voice defaultVoice = _tts.getVoice();
-                    if (defaultVoice != null) {
-                        _voice = defaultVoice.getLocale().toString();
-                    }
-                } else {
-                    _voice = Locale.getDefault().toString();
-                }
+          @Override
+          @SuppressWarnings("deprecation")
+          public void onError(String utteranceId) {
+              onErrorInternal(utteranceId, -1);
+          }
 
-                _initLatch.countDown();
-                Log.i(_logName, "TTS initialized successfully");
-            }
-        } catch (Exception error) {
-            _initSuccess = false;
-            _isReady = false;
-            _isInitializing = false;
-            _initLatch.countDown();
+          @Override
+          public void onError(String utteranceId, int errorCode) {
+              onErrorInternal(utteranceId, errorCode);
+          }
 
-            if (hasListeners("completed")) {
-                HashMap<String, Object> event = new HashMap<String, Object>();
-                event.put("success", false);
-                event.put("message", "General Err: " + error.getMessage());
-                event.put("text", _text);
-                event.put("voice", _voice);
-                fireEvent("completed", event);
-            }
-            Log.e(UtteranceModule.MODULE_FULL_NAME, error.getMessage());
-            error.printStackTrace();
-        }
-    }
+          private void onErrorInternal(String utteranceId, int errorCode) {
+              Log.e(_logName, "TTS Engine: utterance error - " + utteranceId + " (code: " + errorCode + ")");
+              _isSpeakingProperty.set(false);
+              _currentUtteranceId = null;
 
-    private void doListener(String eventName) {
-        if (hasListeners(eventName)) {
-            HashMap<String, Object> event = new HashMap<String, Object>();
-            event.put("success", true);
-            if (_tts != null) {
-                _isSpeakingProperty = _tts.isSpeaking();
-            } else {
-                _isSpeakingProperty = false;
-            }
-            event.put("speaking", _isSpeakingProperty);
-            event.put("text", _text);
-            event.put("voice", _voice);
-            fireEvent(eventName, event);
-            Log.d(_logName, "event: " + eventName + " fired");
-        } else {
-            Log.d(_logName, "event: " + eventName + " not found");
-        }
-    }
+              // Reset de flags
+              _isStopping.set(false);
+              _isCanceling.set(false);
 
-    @Kroll.getProperty
-    @Kroll.method
-    public Boolean isSpeaking() {
-        ensureTTSInitialized();
-        if (_tts == null) {
-            _isSpeakingProperty = false;
-            return false;
-        } else {
-            _isSpeakingProperty = _tts.isSpeaking();
-            return _isSpeakingProperty;
-        }
-    }
+              String errorMessage = getErrorMessage(errorCode);
+              fireEventAsync("completed", false, errorMessage);
+          }
+      };
+  }
 
-    @Kroll.method
-    public boolean isSupported() {
-        // TTS is always supported on Android devices
-        return true;
-    }
+  /**
+   * OPTIMIZACIÓN: Mensajes de error descriptivos
+   */
+  private String getErrorMessage(int errorCode) {
+      if (android.os.Build.VERSION.SDK_INT >= 21) {
+          switch (errorCode) {
+              case TextToSpeech.ERROR_SYNTHESIS:
+                  return "Speech synthesis error";
+              case TextToSpeech.ERROR_SERVICE:
+                  return "TTS service error";
+              case TextToSpeech.ERROR_OUTPUT:
+                  return "Audio output error";
+              case TextToSpeech.ERROR_NETWORK:
+                  return "Network error";
+              case TextToSpeech.ERROR_NETWORK_TIMEOUT:
+                  return "Network timeout";
+              case TextToSpeech.ERROR_INVALID_REQUEST:
+                  return "Invalid request";
+              case TextToSpeech.ERROR_NOT_INSTALLED_YET:
+                  return "Voice data not installed";
+              default:
+                  return "Unknown error (code: " + errorCode + ")";
+          }
+      }
+      return "Speech synthesis error";
+  }
 
-    @Kroll.method
-    public boolean isLanguageAvailable(String language) {
-        ensureTTSInitialized();
-        if (_tts == null) {
-            return false;
-        }
-        int check = _tts.isLanguageAvailable(toLocale(language));
-        return ((check != TextToSpeech.LANG_MISSING_DATA) && (check != TextToSpeech.LANG_NOT_SUPPORTED));
-    }
+  /**
+   * OPTIMIZACIÓN: Disparo de eventos asíncronos mejorado
+   */
+  private void fireEventAsync(final String eventName, final boolean success, final String message) {
+      if (!hasListeners(eventName)) {
+          return;
+      }
 
-    @Kroll.method
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    public void startSpeaking(HashMap hm) {
-        ensureTTSInitialized();
-        if (_tts == null) {
-            Log.e(_logName, "TTS not initialized");
-            return;
-        }
+      _mainHandler.post(new Runnable() {
+          @Override
+          public void run() {
+              HashMap<String, Object> event = new HashMap<>();
+              event.put("success", success);
+              event.put("message", message);
+              event.put("speaking", _isSpeakingProperty.get());
+              event.put("text", _text);
+              event.put("voice", _voice);
+              event.put("rate", _currentRate);
+              event.put("pitch", _currentPitch);
+              fireEvent(eventName, event);
+              Log.d(_logName, "Event fired: " + eventName + " - " + message);
+          }
+      });
+  }
 
-        final KrollDict args = new KrollDict(hm);
-        if (!args.containsKeyAndNotNull("text")) {
-            Log.e(_logName, "the text parameter is required");
-            return;
-        }
+  @Override
+  public void onInit(int status) {
+      try {
+          if (status == TextToSpeech.ERROR_NETWORK_TIMEOUT || 
+              status == TextToSpeech.ERROR_NETWORK ||
+              status == TextToSpeech.ERROR_NOT_INSTALLED_YET ||
+              status == TextToSpeech.LANG_MISSING_DATA || 
+              status == TextToSpeech.LANG_NOT_SUPPORTED) {
 
-        // ✅ OPTIMIZACIÓN: Si TTS está listo, ejecutar inmediatamente (como v1.0.0)
-        if (_tts != null && _isReady) {
-            doStartSpeakingImmediate(args);
-            return;
-        }
+              String errorMsg = "TTS initialization failed: " + getInitErrorMessage(status);
+              Log.e(_logName, errorMsg);
+              _initSuccess.set(false);
+              _isReady.set(false);
+              _isInitializing.set(false);
+              _initLatch.countDown();
 
-        // ✅ FALLBACK: Si no está listo, usar el método v3.0.0 pero más rápido
-        if (_tts != null && !_isReady) {
-            Log.i(_logName, "TTS not ready, waiting briefly...");
-            // En lugar de 5 segundos, esperar máximo 1 segundo
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    for (int i = 0; i < 10; i++) {
-                        if (_isReady) {
-                            _mainHandler.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    doStartSpeakingImmediate(args);
-                                }
-                            });
-                            return;
-                        }
-                        try { 
-                            Thread.sleep(100); 
-                        } catch (InterruptedException e) { 
-                            Thread.currentThread().interrupt();
-                            break; 
-                        }
-                    }
-                    // Si no está listo en 1 segundo, intentar de todos modos
-                    _mainHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            doStartSpeakingForced(args);
-                        }
-                    });
-                }
-            }).start();
-        } else {
-            // TTS no existe, crearlo y intentar
-            initializeTTSImmediate();
-            doStartSpeakingForced(args);
-        }
-    }
+              fireEventAsync("error", false, errorMsg);
+              return;
+          }
 
-    private void doStartSpeaking(KrollDict args) {
-        _text = args.getString("text");
-        _voice = "auto";
+          if (status == TextToSpeech.SUCCESS) {
+              _initSuccess.set(true);
+              _isReady.set(true);
+              _isInitializing.set(false);
 
-        if (args.containsKeyAndNotNull("voice") || args.containsKeyAndNotNull("language")) {
-            if (args.containsKeyAndNotNull("language")) {
-                _voice = args.getString("language");
-            } else {
-                _voice = args.getString("voice");
-            }
+              // Configurar listener optimizado
+              _tts.setOnUtteranceProgressListener(createOptimizedUtteranceProgressListener());
 
-            if (_voice != "auto") {
-                // Para API 21+, intentar establecer la voz directamente por nombre
-                if (android.os.Build.VERSION.SDK_INT >= 21) {
-                    try {
-                        java.util.Set<android.speech.tts.Voice> availableVoices = _tts.getVoices();
-                        if (availableVoices != null) {
-                            boolean voiceFound = false;
-                            for (android.speech.tts.Voice voice : availableVoices) {
-                                if (voice.getName().equals(_voice)) {
-                                    _tts.setVoice(voice);
-                                    Log.d(_logName, "Voice set successfully: " + _voice);
-                                    voiceFound = true;
-                                    break;
-                                }
-                            }
-                            if (!voiceFound) {
-                                // Fallback: intentar establecer por locale
-                                if (isLanguageAvailable(_voice)) {
-                                    _tts.setLanguage(toLocale(_voice));
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        Log.w(_logName, "Could not set voice by name, falling back to locale: " + e.getMessage());
-                        // Fallback: intentar establecer por locale
-                        if (isLanguageAvailable(_voice)) {
-                            _tts.setLanguage(toLocale(_voice));
-                        }
-                    }
-                } else {
-                    // API < 21: usar el método tradicional
-                    if (isLanguageAvailable(_voice)) {
-                        _tts.setLanguage(toLocale(_voice));
-                    } else {
-                        Log.e(_logName, "Unsupported Language provided.");
-                    }
-                }
-            }
-        }
+              // Configurar voz predeterminada
+              setupDefaultVoice();
 
-        if (args.containsKeyAndNotNull("rate")) {
-            double dRate = args.getDouble("rate");
-            _tts.setSpeechRate((float) (dRate));
-        }
-        if (args.containsKeyAndNotNull("pitch")) {
-            double dPitch = args.getDouble("pitch");
-            _tts.setPitch((float) (dPitch));
-        }
+              // OPTIMIZACIÓN: Pre-calentar el motor TTS
+              warmUpTTS();
 
-        // Use modern speak method (API 21+) or alternative for older versions
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
-            Bundle params = new Bundle();
-            params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "FINISHED_PLAYING");
-            _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, params, "FINISHED_PLAYING");
-            // ❌ REMOVIDO: _isSpeakingProperty = true; 
-            // ✅ Ahora el estado se actualiza solo cuando el TTS real inicia (onStart)
-        } else {
-            @SuppressWarnings("deprecation")
-            HashMap<String, String> options = new HashMap<String, String>();
-            options.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "FINISHED_PLAYING");
-            @SuppressWarnings("deprecation")
-            int result = _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, options);
-            if (result == TextToSpeech.ERROR) {
-                Log.e(_logName, "Error starting speech synthesis");
-                // Solo en caso de error inmediato, disparar evento
-                if (hasListeners("completed")) {
-                    HashMap<String, Object> event = new HashMap<String, Object>();
-                    event.put("success", false);
-                    event.put("message", "Failed to start speech synthesis");
-                    event.put("text", _text);
-                    event.put("voice", _voice);
-                    fireEvent("completed", event);
-                }
-            }
-            // ❌ REMOVIDO: _isSpeakingProperty = true;
-            // ✅ Ahora el estado se actualiza solo cuando el TTS real inicia (onStart)
-        }
-    }
+              _initLatch.countDown();
+              Log.i(_logName, "TTS initialized successfully");
 
-    // ✅ NUEVO: Método de ejecución inmediata como v1.0.0
-    private void doStartSpeakingImmediate(KrollDict args) {
-        _text = args.getString("text");
-        _voice = "auto";
+              fireEventAsync("initialized", true, "TTS ready");
+          }
+      } catch (Exception error) {
+          handleInitError(error);
+      }
+  }
 
-        if (args.containsKeyAndNotNull("voice") || args.containsKeyAndNotNull("language")) {
-            if (args.containsKeyAndNotNull("language")) {
-                _voice = args.getString("language");
-                Log.d(_logName, "Language argument: " + args.getString("_voice"));
+  /**
+   * OPTIMIZACIÓN: Mensajes descriptivos para errores de inicialización
+   */
+  private String getInitErrorMessage(int status) {
+      switch (status) {
+          case TextToSpeech.ERROR_NETWORK_TIMEOUT:
+              return "Network timeout during initialization";
+          case TextToSpeech.ERROR_NETWORK:
+              return "Network error during initialization";
+          case TextToSpeech.ERROR_NOT_INSTALLED_YET:
+              return "TTS voice data not installed";
+          case TextToSpeech.LANG_MISSING_DATA:
+              return "Language data missing";
+          case TextToSpeech.LANG_NOT_SUPPORTED:
+              return "Language not supported";
+          default:
+              return "Unknown initialization error";
+      }
+  }
 
-                // ✅ ANDROID NORMALIZATION: Convert iOS format (es-MX) to Android format (es_MX)
-                _voice = _voice.replace("-", "_");
-                Log.d(_logName, "Language argument (normalized): " + args.getString("_voice"));
-            } else {
-                _voice = args.getString("voice");
-                Log.d(_logName, "Voice argument: " + _voice);
-            }
+  /**
+   * OPTIMIZACIÓN: Configurar voz predeterminada
+   */
+  private void setupDefaultVoice() {
+      if (android.os.Build.VERSION.SDK_INT >= 21) {
+          android.speech.tts.Voice defaultVoice = _tts.getDefaultVoice();
+          if (defaultVoice != null) {
+              _voice = defaultVoice.getName();
+              _currentLocale = defaultVoice.getLocale();
+          }
+      } else {
+          // Para API < 21, usar Locale.getDefault() en lugar del método deprecated
+          _currentLocale = Locale.getDefault();
+          _voice = _currentLocale.toString();
+      }
+  }
 
-            if (!_voice.equals("auto")) {
-                // Para API 21+, intentar establecer la voz directamente por nombre
-                if (android.os.Build.VERSION.SDK_INT >= 21) {
-                    try {
-                        java.util.Set<android.speech.tts.Voice> availableVoices = _tts.getVoices();
-                        if (availableVoices != null) {
-                            boolean voiceFound = false;
-                            for (android.speech.tts.Voice voice : availableVoices) {
-                                if (voice.getName().equals(_voice)) {
-                                    _tts.setVoice(voice);
-                                    Log.d(_logName, "Voice set successfully: " + _voice);
-                                    voiceFound = true;
-                                    break;
-                                }
-                            }
-                            if (!voiceFound) {
-                                // Fallback: intentar establecer por locale
-                                if (isLanguageAvailable(_voice)) {
-                                    _tts.setLanguage(toLocale(_voice));
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        Log.w(_logName, "Could not set voice by name, falling back to locale: " + e.getMessage());
-                        // Fallback: intentar establecer por locale
-                        if (isLanguageAvailable(_voice)) {
-                            _tts.setLanguage(toLocale(_voice));
-                        }
-                    }
-                } else {
-                    // API < 21: usar el método tradicional
-                    if (isLanguageAvailable(_voice)) {
-                        _tts.setLanguage(toLocale(_voice));
-                    } else {
-                        Log.e(_logName, "Unsupported Language provided.");
-                    }
-                }
-            }
-        }
+  /**
+   * OPTIMIZACIÓN: Pre-calentar el motor TTS para reducir latencia en el primer uso
+   */
+  private void warmUpTTS() {
+      if (android.os.Build.VERSION.SDK_INT >= 21) {
+          // Síntesis silenciosa para pre-calentar
+          Bundle params = new Bundle();
+          params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0.0f);
+          _tts.speak("", TextToSpeech.QUEUE_FLUSH, params, "warmup");
+      }
+  }
 
-        if (args.containsKeyAndNotNull("rate")) {
-            double dRate = args.getDouble("rate");
-            _tts.setSpeechRate((float) dRate);
-        }
-        
-        if (args.containsKeyAndNotNull("pitch")) {
-            double dPitch = args.getDouble("pitch");
-            _tts.setPitch((float) dPitch);
-        }
+  /**
+   * OPTIMIZACIÓN: Manejo de errores de inicialización
+   */
+  private void handleInitError(Exception error) {
+      _initSuccess.set(false);
+      _isReady.set(false);
+      _isInitializing.set(false);
+      _initLatch.countDown();
 
-        // ✅ v3.0.0: Usar API moderna
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
-            Bundle params = new Bundle();
-            params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "FINISHED_PLAYING");
-            _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, params, "FINISHED_PLAYING");
-        } else {
-            // ✅ v1.0.0: Fallback para dispositivos antiguos
-            @SuppressWarnings("deprecation")
-            HashMap<String, String> options = new HashMap<String, String>();
-            options.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "FINISHED_PLAYING");
-            @SuppressWarnings("deprecation")
-            int result = _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, options);
-            if (result == TextToSpeech.ERROR) {
-                Log.e(_logName, "Error starting speech synthesis");
-                if (hasListeners("completed")) {
-                    HashMap<String, Object> event = new HashMap<String, Object>();
-                    event.put("success", false);
-                    event.put("message", "Failed to start speech synthesis");
-                    event.put("text", _text);
-                    event.put("voice", _voice);
-                    fireEvent("completed", event);
-                }
-            }
-            // ✅ COMO v1.0.0: Evento inmediato para responsividad en API antiguos
-            else {
-                // Disparar evento started solo para API < 21 (compatibilidad v1.0.0)
-                doListener("started");
-            }
-        }
-    }
+      String errorMsg = "TTS initialization exception: " + error.getMessage();
+      Log.e(_logName, errorMsg, error);
+      fireEventAsync("error", false, errorMsg);
+  }
 
-    // ✅ NUEVO: Método forzado para casos edge
-    private void doStartSpeakingForced(KrollDict args) {
-        try {
-            doStartSpeakingImmediate(args);
-        } catch (Exception e) {
-            Log.e(_logName, "Forced speech failed: " + e.getMessage());
-            if (hasListeners("completed")) {
-                HashMap<String, Object> event = new HashMap<String, Object>();
-                event.put("success", false);
-                event.put("message", "Speech initialization failed");
-                event.put("text", _text);
-                event.put("voice", _voice);
-                fireEvent("completed", event);
-            }
-        }
-    }
+  @Kroll.getProperty
+  @Kroll.method
+  public Boolean isSpeaking() {
+      if (_tts == null || !_isReady.get()) {
+          return false;
+      }
 
-    @Kroll.method
-    @SuppressWarnings("rawtypes")
-    public void pauseSpeaking(@Kroll.argument(optional = true) HashMap hm) {
-        Log.d(_logName, "Android does not support pauseSpeaking, this method is for parity only");
-        // ❌ REMOVIDO: doListener("paused");
-        // ✅ Android no soporta pause real, no disparar eventos falsos
-        if (hasListeners("paused")) {
-            HashMap<String, Object> event = new HashMap<String, Object>();
-            event.put("success", false);
-            event.put("message", "Pause not supported on Android");
-            event.put("text", _text);
-            event.put("voice", _voice);
-            fireEvent("paused", event);
-        }
-    }
+      // Actualizar estado y devolver
+      boolean speaking = _tts.isSpeaking();
+      _isSpeakingProperty.set(speaking);
+      return speaking;
+  }
 
-    @Kroll.method
-    @SuppressWarnings("rawtypes")
-    public void continueSpeaking(@Kroll.argument(optional = true) HashMap hm) {
-        Log.d(_logName, "Android does not support continueSpeaking, this method is for parity only");
-        // ❌ REMOVIDO: doListener("continued");
-        // ✅ Android no soporta continue real, no disparar eventos falsos
-        if (hasListeners("continued")) {
-            HashMap<String, Object> event = new HashMap<String, Object>();
-            event.put("success", false);
-            event.put("message", "Continue not supported on Android");
-            event.put("text", _text);
-            event.put("voice", _voice);
-            fireEvent("continued", event);
-        }
-    }
+  @Kroll.method
+  public boolean isSupported() {
+      return true;
+  }
 
-    @Kroll.method
-    public void continueSpeaking() {
-        Log.d(_logName, "Android does not support continueSpeaking, this method is for parity only");
-        // ❌ REMOVIDO: doListener("continued");
-        // ✅ Android no soporta continue real, no disparar eventos falsos
-        if (hasListeners("continued")) {
-            HashMap<String, Object> event = new HashMap<String, Object>();
-            event.put("success", false);
-            event.put("message", "Continue not supported on Android");
-            event.put("text", _text);
-            event.put("voice", _voice);
-            fireEvent("continued", event);
-        }
-    }
+  @Kroll.method
+  public boolean isLanguageAvailable(String language) {
+      if (_tts == null || !_isReady.get()) {
+          return false;
+      }
 
-    @Kroll.method
-    @SuppressWarnings("rawtypes")
-    public void stopSpeaking(@Kroll.argument(optional = true) HashMap hm) {
-        ensureTTSInitialized();
-        if (_tts != null && _tts.isSpeaking()) {
-            _tts.stop();
-            // ❌ REMOVIDO: _isSpeakingProperty = false;
-            // ❌ REMOVIDO: doListener("stopped");
-            // ✅ El evento "stopped" debería dispararse via onDone() cuando el TTS realmente se detenga
-            Log.d(_logName, "TTS stop() called - waiting for onDone() callback");
-        } else {
-            // Si no estaba hablando, disparar evento inmediatamente
-            _isSpeakingProperty = false;
-            if (hasListeners("stopped")) {
-                HashMap<String, Object> event = new HashMap<String, Object>();
-                event.put("success", true);
-                event.put("speaking", false);
-                event.put("text", _text);
-                event.put("voice", _voice);
-                fireEvent("stopped", event);
-            }
-        }
-    }
+      try {
+          Locale locale = toLocale(language);
+          int result = _tts.isLanguageAvailable(locale);
+          return result >= TextToSpeech.LANG_AVAILABLE;
+      } catch (Exception e) {
+          Log.e(_logName, "Error checking language availability: " + e.getMessage());
+          return false;
+      }
+  }
 
-    @Kroll.method
-    public void cancelSpeaking() {
-        ensureTTSInitialized();
-        if (_tts != null && _tts.isSpeaking()) {
-            _tts.stop();
-            // ❌ REMOVIDO: _isSpeakingProperty = false;
-            // ❌ REMOVIDO: doListener("canceled");
-            // ✅ El evento "canceled" debería dispararse via onDone() cuando el TTS realmente se cancele
-            Log.d(_logName, "TTS stop() called for cancel - waiting for onDone() callback");
-        } else {
-            // Si no estaba hablando, disparar evento inmediatamente
-            _isSpeakingProperty = false;
-            if (hasListeners("canceled")) {
-                HashMap<String, Object> event = new HashMap<String, Object>();
-                event.put("success", true);
-                event.put("speaking", false);
-                event.put("text", _text);
-                event.put("voice", _voice);
-                fireEvent("canceled", event);
-            }
-        }
-    }
+  /**
+   * OPTIMIZACIÓN: Método principal de habla mejorado con mejor cancelación
+   */
+  @Kroll.method
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  public void startSpeaking(HashMap hm) {
+      final KrollDict args = new KrollDict(hm);
+
+      if (!args.containsKeyAndNotNull("text")) {
+          Log.e(_logName, "Text parameter is required");
+          fireEventAsync("error", false, "Text parameter is required");
+          return;
+      }
+
+      // CLAVE: Limpiar estados ANTES de cancelar habla previa
+      _isStopping.set(false);
+      _isCanceling.set(false);
+      _currentUtteranceId = null;
+
+      // OPTIMIZACIÓN: Cancelar cualquier habla previa inmediatamente
+      if (_tts != null && _tts.isSpeaking()) {
+          _tts.stop();
+          _isSpeakingProperty.set(false);
+      }
+
+      // Verificar si TTS está listo
+      if (!isReadyForSpeech()) {
+          if (_tts == null) {
+              initializeTTSOptimized();
+          }
+
+          // Esperar brevemente por inicialización
+          _mainHandler.postDelayed(new Runnable() {
+              @Override
+              public void run() {
+                  if (isReadyForSpeech()) {
+                      performSpeak(args);
+                  } else {
+                      Log.e(_logName, "TTS not ready after wait");
+                      fireEventAsync("error", false, "TTS not ready");
+                  }
+              }
+          }, 100);
+      } else {
+          // TTS listo, hablar inmediatamente
+          performSpeak(args);
+      }
+  }
+
+  /**
+     * OPTIMIZACIÓN: Método de habla optimizado
+     */
+    private void performSpeak(KrollDict args) {
+      _text = args.getString("text");
+
+      // Configurar voz/idioma
+      if (args.containsKeyAndNotNull("voice") || args.containsKeyAndNotNull("language")) {
+          String requestedVoice = args.containsKeyAndNotNull("voice") ? 
+              args.getString("voice") : args.getString("language");
+
+          // Normalizar formato iOS a Android
+          requestedVoice = requestedVoice.replace("-", "_");
+
+          if (!requestedVoice.equals("auto") && !requestedVoice.equals(_voice)) {
+              setVoiceOptimized(requestedVoice);
+          }
+      }
+
+      // Configurar velocidad
+      if (args.containsKeyAndNotNull("rate")) {
+          double rateDouble = args.getDouble("rate");
+          float rate = (float) rateDouble;
+          if (rate != _currentRate) {
+              _currentRate = rate;
+              _tts.setSpeechRate(rate);
+          }
+      }
+
+      // Configurar tono
+      if (args.containsKeyAndNotNull("pitch")) {
+          double pitchDouble = args.getDouble("pitch");
+          float pitch = (float) pitchDouble;
+          if (pitch != _currentPitch) {
+              _currentPitch = pitch;
+              _tts.setPitch(pitch);
+          }
+      }
+
+      // Generar ID único para este utterance
+      String utteranceId = "utterance_" + _utteranceCounter.incrementAndGet();
+
+      // OPTIMIZACIÓN: Usar API moderna con parámetros optimizados
+      if (android.os.Build.VERSION.SDK_INT >= 21) {
+          Bundle params = new Bundle();
+          params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId);
+
+          // OPTIMIZACIÓN: Usar QUEUE_FLUSH para cancelar cualquier cola previa
+          int result = _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, params, utteranceId);
+
+          if (result == TextToSpeech.ERROR) {
+              Log.e(_logName, "Failed to queue speech");
+              fireEventAsync("error", false, "Failed to queue speech");
+          }
+      } else {
+          // Fallback para API < 21
+          @SuppressWarnings("deprecation")
+          HashMap<String, String> params = new HashMap<>();
+          params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId);
+
+          @SuppressWarnings("deprecation")
+          int result = _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, params);
+
+          if (result == TextToSpeech.ERROR) {
+              Log.e(_logName, "Failed to queue speech");
+              fireEventAsync("error", false, "Failed to queue speech");
+          }
+      }
+  }
+
+  /**
+   * OPTIMIZACIÓN: Configuración de voz mejorada
+   */
+  private void setVoiceOptimized(String requestedVoice) {
+      _voice = requestedVoice;
+
+      if (android.os.Build.VERSION.SDK_INT >= 21) {
+          // Intentar establecer voz por nombre primero
+          java.util.Set<android.speech.tts.Voice> voices = _tts.getVoices();
+          if (voices != null) {
+              for (android.speech.tts.Voice voice : voices) {
+                  if (voice.getName().equals(requestedVoice)) {
+                      _tts.setVoice(voice);
+                      _currentLocale = voice.getLocale();
+                      return;
+                  }
+              }
+          }
+      }
+
+      // Fallback: establecer por locale
+      Locale locale = toLocale(requestedVoice);
+      if (_tts.isLanguageAvailable(locale) >= TextToSpeech.LANG_AVAILABLE) {
+          _tts.setLanguage(locale);
+          _currentLocale = locale;
+      } else {
+          Log.w(_logName, "Requested voice/language not available: " + requestedVoice);
+      }
+  }
+
+  /**
+   * OPTIMIZACIÓN: Pausa mejorada (no soportada nativamente en Android)
+   */
+  @Kroll.method
+  @SuppressWarnings("rawtypes")
+  public void pauseSpeaking(@Kroll.argument(optional = true) HashMap hm) {
+      Log.d(_logName, "Pause not natively supported on Android");
+      fireEventAsync("paused", false, "Pause not supported on Android");
+  }
+
+  /**
+   * OPTIMIZACIÓN: Continuar mejorado (no soportado nativamente en Android)
+   */
+  @Kroll.method
+  @SuppressWarnings("rawtypes")
+  public void continueSpeaking(@Kroll.argument(optional = true) HashMap hm) {
+      Log.d(_logName, "Continue not natively supported on Android");
+      fireEventAsync("continued", false, "Continue not supported on Android");
+  }
+
+  @Kroll.method
+  public void continueSpeaking() {
+      continueSpeaking(null);
+  }
+
+  /**
+   * OPTIMIZACIÓN: Stop mejorado con respuesta inmediata como la versión original
+   */
+  @Kroll.method
+  @SuppressWarnings("rawtypes")
+  public void stopSpeaking(@Kroll.argument(optional = true) HashMap hm) {
+      if (_tts == null) {
+          fireEventAsync("stopped", true, "Already stopped");
+          return;
+      }
+
+      // CLAVE: Resetear flags ANTES de hacer stop para evitar confusión
+      _isStopping.set(false);
+      _isCanceling.set(false);
+
+      if (_tts.isSpeaking()) {
+          _tts.stop();
+          _isSpeakingProperty.set(false);
+          _currentUtteranceId = null;
+          
+          // CLAVE: Disparar evento inmediatamente como en la versión original
+          fireEventAsync("stopped", true, "Speech stopped");
+      } else {
+          _isSpeakingProperty.set(false);
+          fireEventAsync("stopped", true, "Already stopped");
+      }
+  }
+
+  /**
+   * OPTIMIZACIÓN: Cancel mejorado para respuesta inmediata como stopSpeaking
+   */
+  @Kroll.method
+  public void cancelSpeaking() {
+      if (_tts == null) {
+          fireEventAsync("canceled", true, "Already canceled");
+          return;
+      }
+
+      // CLAVE: Resetear flags ANTES de hacer stop
+      _isStopping.set(false);
+      _isCanceling.set(false);
+
+      if (_tts.isSpeaking()) {
+          _tts.stop();
+          _isSpeakingProperty.set(false);
+          _currentUtteranceId = null;
+          
+          // CLAVE: Disparar evento inmediatamente
+          fireEventAsync("canceled", true, "Speech canceled");
+      } else {
+          _isSpeakingProperty.set(false);
+          fireEventAsync("canceled", true, "Already canceled");
+      }
+  }
+
+// ========================================
+    // Lifecycle Methods
+    // ========================================
 
     @Override
-    public void onDestroy(Activity arg0) {
+    public void onDestroy(Activity activity) {
         if (_tts != null) {
+            // Cancelar cualquier habla pendiente
             if (_tts.isSpeaking()) {
                 _tts.stop();
-                _isSpeakingProperty = false;
             }
+            // Liberar recursos
             _tts.shutdown();
+            _tts = null;
+            _isReady.set(false);
+            _isSpeakingProperty.set(false);
+            Log.d(_logName, "TTS resources released");
         }
     }
 
     @Override
-    public void onPause(Activity arg0) {
+    public void onPause(Activity activity) {
+        // OPTIMIZACIÓN: Pausar si está hablando para ahorrar batería
+        if (_tts != null && _tts.isSpeaking()) {
+            _tts.stop();
+            fireEventAsync("paused", true, "Speech paused due to app pause");
+        }
     }
 
     @Override
-    public void onResume(Activity arg0) {
+    public void onResume(Activity activity) {
+        // OPTIMIZACIÓN: Re-verificar disponibilidad al resumir
+        if (_tts != null && _isReady.get()) {
+            Log.d(_logName, "TTS ready on resume");
+        }
     }
 
     @Override
-    public void onStart(Activity arg0) {
+    public void onStart(Activity activity) {
+        // No-op
     }
 
     @Override
-    public void onStop(Activity arg0) {
-    }
-
-    @Override
-    public void listenerAdded(String arg0, int arg1, KrollProxy arg2) {
-    }
-
-    @Override
-    public void listenerRemoved(String arg0, int arg1, KrollProxy arg2) {
+    public void onStop(Activity activity) {
+        // OPTIMIZACIÓN: Detener habla al parar la actividad
+        if (_tts != null && _tts.isSpeaking()) {
+            _tts.stop();
+        }
     }
 
     // ========================================
-    // Modern APIs leveraging Android API 21+ (v3.0 MVP)
+    // KrollProxyListener Methods
+    // ========================================
+
+    @Override
+    public void listenerAdded(String type, int count, KrollProxy proxy) {
+        // No-op
+    }
+
+    @Override
+    public void listenerRemoved(String type, int count, KrollProxy proxy) {
+        // No-op
+    }
+
+    @Override
+    public void processProperties(KrollDict dict) {
+        // No-op
+    }
+
+    @Override
+    public void propertiesChanged(List<KrollPropertyChange> changes, KrollProxy proxy) {
+        // No-op
+    }
+
+    @Override
+    public void propertyChanged(String key, Object oldValue, Object newValue, KrollProxy proxy) {
+        // No-op
+    }
+
+    // ========================================
+    // Modern APIs (API 21+)
     // ========================================
 
     /**
-     * Get available voices using modern Android API 21+ methods
-     * This method properly waits for TTS initialization before attempting to get voices
-     * @return Array of available voices with detailed information
+     * OPTIMIZACIÓN: Obtener voces con cache y retry mejorado
      */
     @Kroll.method
     public Object[] getModernVoices() {
-        ensureTTSInitialized();
         if (_tts == null || android.os.Build.VERSION.SDK_INT < 21) {
-            Log.w(_logName, "Modern voices API requires Android API 21+");
+            Log.w(_logName, "Modern voices API requires Android API 21+ and initialized TTS");
             return new Object[0];
         }
 
-        // Wait for TTS initialization on a background thread
-        try {
-            boolean initialized = _initLatch.await(3, TimeUnit.SECONDS);
-            if (!initialized || !_initSuccess) {
-                Log.w(_logName, "TTS Engine not yet fully initialized - voices may not be available");
-                Log.i(_logName, "Recommendation: Wait a few seconds after creating Speech object before calling getModernVoices()");
-                return new Object[0];
-            }
-        } catch (InterruptedException e) {
-            Log.e(_logName, "Interrupted while waiting for TTS initialization");
-            Thread.currentThread().interrupt();
+        // Esperar inicialización con timeout corto
+        if (!waitForInit(1000)) {
+            Log.w(_logName, "TTS not ready. Call this method after 'initialized' event");
             return new Object[0];
         }
 
         try {
-            // Get voices with a small retry mechanism in case voices aren't immediately available
-            java.util.Set<android.speech.tts.Voice> voices = null;
-            for (int retry = 0; retry < 3; retry++) {
-                voices = _tts.getVoices();
-                if (voices != null && !voices.isEmpty()) {
-                    break;
-                }
-                // Small delay between retries
+            java.util.Set<android.speech.tts.Voice> voices = _tts.getVoices();
+            
+            if (voices == null || voices.isEmpty()) {
+                // Un retry rápido
                 try {
                     Thread.sleep(100);
+                    voices = _tts.getVoices();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    break;
                 }
             }
 
             if (voices == null || voices.isEmpty()) {
-                Log.w(_logName, "TTS Engine returned empty voice set");
+                Log.w(_logName, "No voices available");
                 return new Object[0];
             }
 
-            Log.i(_logName, "Successfully retrieved " + voices.size() + " voices from TTS engine");
             Object[] result = new Object[voices.size()];
             int index = 0;
 
@@ -803,80 +821,293 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
                 voiceInfo.put("locale", voice.getLocale().toString());
                 voiceInfo.put("quality", voice.getQuality());
                 voiceInfo.put("isNetworkConnectionRequired", voice.isNetworkConnectionRequired());
+                
+                // Información adicional útil
+                voiceInfo.put("language", voice.getLocale().getLanguage());
+                voiceInfo.put("country", voice.getLocale().getCountry());
+                
+                // Calidad como string
+                String qualityStr = "normal";
+                if (voice.getQuality() >= 400) {
+                    qualityStr = "very_high";
+                } else if (voice.getQuality() >= 300) {
+                    qualityStr = "high";
+                } else if (voice.getQuality() >= 200) {
+                    qualityStr = "normal";
+                } else {
+                    qualityStr = "low";
+                }
+                voiceInfo.put("qualityString", qualityStr);
+                
                 result[index++] = voiceInfo;
             }
 
+            Log.i(_logName, "Retrieved " + voices.size() + " voices");
             return result;
         } catch (Exception e) {
-            Log.e(_logName, "Error getting modern voices: " + e.getMessage());
+            Log.e(_logName, "Error getting voices: " + e.getMessage());
             return new Object[0];
         }
     }
 
     /**
-     * Get available languages using modern Android API 21+ methods
-     * @return Array of available language codes
+     * OPTIMIZACIÓN: Obtener idiomas disponibles
      */
     @Kroll.method
     public Object[] getModernLanguages() {
-        ensureTTSInitialized();
         if (_tts == null || android.os.Build.VERSION.SDK_INT < 21) {
-            Log.w(_logName, "Modern languages API requires Android API 21+");
+            Log.w(_logName, "Modern languages API requires Android API 21+ and initialized TTS");
             return new Object[0];
         }
 
-        // Wait for TTS initialization
-        try {
-            boolean initialized = _initLatch.await(3, TimeUnit.SECONDS);
-            if (!initialized || !_initSuccess) {
-                Log.w(_logName, "TTS Engine not yet fully initialized - languages may not be available");
-                return new Object[0];
-            }
-        } catch (InterruptedException e) {
-            Log.e(_logName, "Interrupted while waiting for TTS initialization");
-            Thread.currentThread().interrupt();
+        if (!waitForInit(1000)) {
+            Log.w(_logName, "TTS not ready. Call this method after 'initialized' event");
             return new Object[0];
         }
 
         try {
             java.util.Set<java.util.Locale> languages = _tts.getAvailableLanguages();
+            
             if (languages == null || languages.isEmpty()) {
-                Log.w(_logName, "TTS Engine returned empty language set");
+                Log.w(_logName, "No languages available");
                 return new Object[0];
             }
 
+            // Crear array con información detallada
             Object[] result = new Object[languages.size()];
             int index = 0;
 
             for (java.util.Locale locale : languages) {
-                result[index++] = locale.toString();
+                HashMap<String, Object> langInfo = new HashMap<>();
+                langInfo.put("code", locale.toString());
+                langInfo.put("language", locale.getLanguage());
+                langInfo.put("country", locale.getCountry());
+                langInfo.put("displayName", locale.getDisplayName());
+                langInfo.put("displayLanguage", locale.getDisplayLanguage());
+                langInfo.put("displayCountry", locale.getDisplayCountry());
+                
+                result[index++] = langInfo;
             }
 
+            Log.i(_logName, "Retrieved " + languages.size() + " languages");
             return result;
         } catch (Exception e) {
-            Log.e(_logName, "Error getting modern languages: " + e.getMessage());
+            Log.e(_logName, "Error getting languages: " + e.getMessage());
             return new Object[0];
         }
     }
 
     /**
-     * Check if TTS engine is fully initialized and ready
-     * @return true if TTS is ready, false otherwise
+     * OPTIMIZACIÓN: Verificar si TTS está completamente listo
      */
     @Kroll.method
     public boolean isTTSReady() {
-        return _tts != null && _initSuccess && _initLatch.getCount() == 0;
+        return _tts != null && _isReady.get();
     }
 
-    @Override
-    public void processProperties(KrollDict arg0) {
+    /**
+     * OPTIMIZACIÓN: Obtener información del motor TTS actual
+     */
+    @Kroll.method
+    public HashMap<String, Object> getEngineInfo() {
+        HashMap<String, Object> info = new HashMap<>();
+        
+        if (_tts == null) {
+            info.put("available", false);
+            return info;
+        }
+        
+        info.put("available", true);
+        info.put("ready", _isReady.get());
+        
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            try {
+                info.put("defaultEngine", _tts.getDefaultEngine());
+                info.put("currentEngine", _tts.getEngines());
+                
+                android.speech.tts.Voice currentVoice = _tts.getVoice();
+                if (currentVoice != null) {
+                    HashMap<String, Object> voiceInfo = new HashMap<>();
+                    voiceInfo.put("name", currentVoice.getName());
+                    voiceInfo.put("locale", currentVoice.getLocale().toString());
+                    voiceInfo.put("quality", currentVoice.getQuality());
+                    info.put("currentVoice", voiceInfo);
+                }
+            } catch (Exception e) {
+                Log.e(_logName, "Error getting engine info: " + e.getMessage());
+            }
+        }
+        
+        info.put("currentRate", _currentRate);
+        info.put("currentPitch", _currentPitch);
+        
+        return info;
     }
 
-    @Override
-    public void propertiesChanged(List<KrollPropertyChange> arg0, KrollProxy arg1) {
+    /**
+     * OPTIMIZACIÓN: Establecer motor TTS específico (API 14+)
+     */
+    @Kroll.method
+    public void setEngine(String enginePackage) {
+        if (_tts != null) {
+            // Necesita recrear TTS con nuevo motor
+            shutdownTTS();
+        }
+        
+        _mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    _isInitializing.set(true);
+                    _tts = new TextToSpeech(TiApplication.getInstance().getApplicationContext(), 
+                                           SpeechProxy.this, enginePackage);
+                } catch (Exception e) {
+                    Log.e(_logName, "Failed to set engine: " + e.getMessage());
+                    fireEventAsync("error", false, "Failed to set engine: " + enginePackage);
+                }
+            }
+        });
     }
 
-    @Override
-    public void propertyChanged(String arg0, Object arg1, Object arg2, KrollProxy arg3) {
+    /**
+     * OPTIMIZACIÓN: Método para limpiar y reinicializar TTS
+     */
+    @Kroll.method
+    public void reset() {
+        shutdownTTS();
+        _mainHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                initializeTTSOptimized();
+            }
+        }, 100);
+    }
+
+    /**
+     * OPTIMIZACIÓN: Shutdown seguro del TTS
+     */
+    private void shutdownTTS() {
+        if (_tts != null) {
+            try {
+                if (_tts.isSpeaking()) {
+                    _tts.stop();
+                }
+                _tts.shutdown();
+            } catch (Exception e) {
+                Log.e(_logName, "Error during TTS shutdown: " + e.getMessage());
+            } finally {
+                _tts = null;
+                _isReady.set(false);
+                _isSpeakingProperty.set(false);
+                _currentUtteranceId = null;
+            }
+        }
+    }
+
+    /**
+     * OPTIMIZACIÓN: Pre-cargar datos de voz para reducir latencia
+     */
+    @Kroll.method
+    public void preloadVoiceData(String language) {
+        if (_tts == null || !_isReady.get()) {
+            Log.w(_logName, "TTS not ready for preload");
+            return;
+        }
+        
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            Locale locale = toLocale(language);
+            // Sintetizar texto vacío para pre-cargar datos de voz
+            Bundle params = new Bundle();
+            params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0.0f);
+            _tts.setLanguage(locale);
+            _tts.speak(" ", TextToSpeech.QUEUE_ADD, params, "preload_" + language);
+            Log.d(_logName, "Preloading voice data for: " + language);
+        }
+    }
+
+    /**
+     * OPTIMIZACIÓN: Obtener tamaño estimado del texto en milisegundos
+     */
+    @Kroll.method
+    public int getEstimatedDuration(String text, float rate) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        
+        // Estimación basada en promedio de 150 palabras por minuto a velocidad normal
+        String[] words = text.trim().split("\\s+");
+        int wordCount = words.length;
+        
+        // Ajustar por velocidad
+        float adjustedRate = rate > 0 ? rate : 1.0f;
+        
+        // 150 palabras/min = 2.5 palabras/seg a velocidad 1.0
+        // Duración en ms = (palabras / 2.5) * 1000 / velocidad
+        int estimatedMs = (int)((wordCount / 2.5f) * 1000 / adjustedRate);
+        
+        // Agregar pausas estimadas para puntuación
+        int punctuationCount = text.length() - text.replace(".", "").replace(",", "")
+                                                 .replace("!", "").replace("?", "").length();
+        estimatedMs += punctuationCount * 200; // 200ms por signo de puntuación
+        
+        return estimatedMs;
+    }
+
+    /**
+     * OPTIMIZACIÓN: Verificar si un idioma específico necesita conexión de red
+     */
+    @Kroll.method
+    public boolean isNetworkRequired(String language) {
+        if (_tts == null || android.os.Build.VERSION.SDK_INT < 21 || !_isReady.get()) {
+            return false;
+        }
+        
+        try {
+            java.util.Set<android.speech.tts.Voice> voices = _tts.getVoices();
+            if (voices != null) {
+                Locale targetLocale = toLocale(language);
+                for (android.speech.tts.Voice voice : voices) {
+                    if (voice.getLocale().equals(targetLocale)) {
+                        return voice.isNetworkConnectionRequired();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(_logName, "Error checking network requirement: " + e.getMessage());
+        }
+        
+        return false;
+    }
+
+    /**
+     * OPTIMIZACIÓN: Método de diagnóstico para debugging
+     */
+    @Kroll.method
+    public HashMap<String, Object> getDiagnostics() {
+        HashMap<String, Object> diagnostics = new HashMap<>();
+        
+        diagnostics.put("ttsInitialized", _tts != null);
+        diagnostics.put("isReady", _isReady.get());
+        diagnostics.put("isInitializing", _isInitializing.get());
+        diagnostics.put("isSpeaking", _isSpeakingProperty.get());
+        diagnostics.put("isStopping", _isStopping.get());
+        diagnostics.put("isCanceling", _isCanceling.get());
+        diagnostics.put("currentUtteranceId", _currentUtteranceId);
+        diagnostics.put("utteranceCount", _utteranceCounter.get());
+        diagnostics.put("apiLevel", android.os.Build.VERSION.SDK_INT);
+        
+        if (_tts != null && _isReady.get()) {
+            diagnostics.put("ttsIsSpeaking", _tts.isSpeaking());
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                try {
+                    diagnostics.put("defaultEngine", _tts.getDefaultEngine());
+                    diagnostics.put("voiceCount", _tts.getVoices() != null ? _tts.getVoices().size() : 0);
+                } catch (Exception e) {
+                    diagnostics.put("diagnosticError", e.getMessage());
+                }
+            }
+        }
+        
+        return diagnostics;
     }
 }
