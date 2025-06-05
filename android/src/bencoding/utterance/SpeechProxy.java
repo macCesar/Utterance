@@ -139,6 +139,12 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         return _tts != null && _isReady.get() && !_isStopping.get() && !_isCanceling.get();
     }
 
+    private void resetControlFlags() {
+        _isStopping.set(false);
+        _isCanceling.set(false);
+        _currentUtteranceId = null;
+    }
+
     /**
      * OPTIMIZACIÓN: Conversión de locale mejorada con cache
      */
@@ -215,10 +221,9 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
               Log.d(_logName, "TTS Engine: utterance started - " + utteranceId);
               _isSpeakingProperty.set(true);
               _currentUtteranceId = utteranceId;
-
-              // Reset de flags de control
-              _isStopping.set(false);
-              _isCanceling.set(false);
+              
+              // OPTIMIZACIÓN REAL: No resetear flags aquí - ya están en estado correcto
+              // El onStart significa que el TTS comenzó exitosamente, no necesitamos reset
 
               fireEventAsync("started", true, "Speech started");
           }
@@ -233,14 +238,19 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
               if (utteranceId != null && utteranceId.equals(_currentUtteranceId)) {
                   // Determinar qué evento disparar basado en el estado
                   if (_isCanceling.get()) {
-                      _isCanceling.set(false);
                       fireEventAsync("canceled", true, "Speech canceled");
+                      // OPTIMIZACIÓN REAL: Solo resetear el flag específico que usamos
+                      _isCanceling.set(false);
                   } else if (_isStopping.get()) {
-                      _isStopping.set(false);
                       fireEventAsync("stopped", true, "Speech stopped");
+                      // OPTIMIZACIÓN REAL: Solo resetear el flag específico que usamos
+                      _isStopping.set(false);
                   } else {
                       fireEventAsync("completed", true, "Speech completed");
+                      // Habla completada normalmente, no necesita reset de flags de control
                   }
+                  
+                  // Limpiar ID siempre al final
                   _currentUtteranceId = null;
               } else {
                   Log.d(_logName, "Ignoring onDone for old utterance: " + utteranceId + " (current: " + _currentUtteranceId + ")");
@@ -261,11 +271,10 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
           private void onErrorInternal(String utteranceId, int errorCode) {
               Log.e(_logName, "TTS Engine: utterance error - " + utteranceId + " (code: " + errorCode + ")");
               _isSpeakingProperty.set(false);
-              _currentUtteranceId = null;
 
-              // Reset de flags
-              _isStopping.set(false);
-              _isCanceling.set(false);
+              // OPTIMIZACIÓN REAL: En caso de error, sí necesitamos limpiar todo el estado
+              // porque el TTS puede quedar en estado inconsistente
+              resetControlFlags();
 
               String errorMessage = getErrorMessage(errorCode);
               fireEventAsync("completed", false, errorMessage);
@@ -480,10 +489,11 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
           return;
       }
 
-      // CLAVE: Limpiar estados ANTES de cancelar habla previa
-      _isStopping.set(false);
-      _isCanceling.set(false);
-      _currentUtteranceId = null;
+      // OPTIMIZACIÓN REAL: Solo reset si realmente estamos en estado problemático
+      // En lugar de resetear siempre, solo resetear cuando sea necesario
+      if (_isStopping.get() || _isCanceling.get()) {
+          resetControlFlags();
+      }
 
       // OPTIMIZACIÓN: Cancelar cualquier habla previa inmediatamente
       if (_tts != null && _tts.isSpeaking()) {
@@ -651,17 +661,18 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
           return;
       }
 
-      // CLAVE: Resetear flags ANTES de hacer stop para evitar confusión
-      _isStopping.set(false);
-      _isCanceling.set(false);
-
       if (_tts.isSpeaking()) {
+          _isStopping.set(true);
           _tts.stop();
           _isSpeakingProperty.set(false);
           _currentUtteranceId = null;
-          
+
           // CLAVE: Disparar evento inmediatamente como en la versión original
           fireEventAsync("stopped", true, "Speech stopped");
+
+          // OPTIMIZACIÓN REAL: Reset solo este flag específico aquí
+          // El onDone del UtteranceProgressListener se encargará del resto si es necesario
+          _isStopping.set(false);
       } else {
           _isSpeakingProperty.set(false);
           fireEventAsync("stopped", true, "Already stopped");
@@ -678,17 +689,19 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
           return;
       }
 
-      // CLAVE: Resetear flags ANTES de hacer stop
-      _isStopping.set(false);
-      _isCanceling.set(false);
-
       if (_tts.isSpeaking()) {
+          // OPTIMIZACIÓN: Marcar que estamos cancelando antes del stop  
+          _isCanceling.set(true);
           _tts.stop();
           _isSpeakingProperty.set(false);
           _currentUtteranceId = null;
           
           // CLAVE: Disparar evento inmediatamente
           fireEventAsync("canceled", true, "Speech canceled");
+          
+          // OPTIMIZACIÓN REAL: Reset solo este flag específico aquí
+          // El onDone del UtteranceProgressListener se encargará del resto si es necesario
+          _isCanceling.set(false);
       } else {
           _isSpeakingProperty.set(false);
           fireEventAsync("canceled", true, "Already canceled");
