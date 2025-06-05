@@ -132,13 +132,6 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         }
     }
 
-    /**
-     * OPTIMIZACIÓN: Verificación rápida de estado
-     */
-    private boolean isReadyForSpeech() {
-        return _tts != null && _isReady.get() && !_isStopping.get() && !_isCanceling.get();
-    }
-
     private void resetControlFlags() {
         _isStopping.set(false);
         _isCanceling.set(false);
@@ -476,7 +469,7 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
   }
 
   /**
-   * OPTIMIZACIÓN: Método principal de habla mejorado con mejor cancelación
+   * OPTIMIZACIÓN: Método principal de habla mejorado con APIs modernas
    */
   @Kroll.method
   @SuppressWarnings({"rawtypes", "unchecked"})
@@ -489,6 +482,13 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
           return;
       }
 
+      // OPTIMIZACIÓN: Verificación simple y directa con APIs modernas
+      if (_tts == null || !_isReady.get()) {
+          Log.e(_logName, "TTS not initialized. Wait for 'initialized' event.");
+          fireEventAsync("error", false, "TTS not initialized");
+          return;
+      }
+
       // OPTIMIZACIÓN REAL: Solo reset si realmente estamos en estado problemático
       // En lugar de resetear siempre, solo resetear cuando sea necesario
       if (_isStopping.get() || _isCanceling.get()) {
@@ -496,33 +496,13 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
       }
 
       // OPTIMIZACIÓN: Cancelar cualquier habla previa inmediatamente
-      if (_tts != null && _tts.isSpeaking()) {
+      if (_tts.isSpeaking()) {
           _tts.stop();
           _isSpeakingProperty.set(false);
       }
 
-      // Verificar si TTS está listo
-      if (!isReadyForSpeech()) {
-          if (_tts == null) {
-              initializeTTSOptimized();
-          }
-
-          // Esperar brevemente por inicialización
-          _mainHandler.postDelayed(new Runnable() {
-              @Override
-              public void run() {
-                  if (isReadyForSpeech()) {
-                      performSpeak(args);
-                  } else {
-                      Log.e(_logName, "TTS not ready after wait");
-                      fireEventAsync("error", false, "TTS not ready");
-                  }
-              }
-          }, 100);
-      } else {
-          // TTS listo, hablar inmediatamente
-          performSpeak(args);
-      }
+      // OPTIMIZACIÓN: TTS listo - hablar inmediatamente sin delays ni re-verificaciones
+      performSpeak(args);
   }
 
   /**
@@ -535,9 +515,6 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
       if (args.containsKeyAndNotNull("voice") || args.containsKeyAndNotNull("language")) {
           String requestedVoice = args.containsKeyAndNotNull("voice") ? 
               args.getString("voice") : args.getString("language");
-
-          // Normalizar formato iOS a Android
-          requestedVoice = requestedVoice.replace("-", "_");
 
           if (!requestedVoice.equals("auto") && !requestedVoice.equals(_voice)) {
               setVoiceOptimized(requestedVoice);
