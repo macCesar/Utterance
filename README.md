@@ -659,7 +659,7 @@ const rate = speech.SLOW_SPEECH_RATE;
 
 ## 🔐 **Important Permission Note**
 
-**Text-to-Speech (TTS)** = Text → Voice = **NO microphone permissions needed**
+**Text-to-Speech (TTS)** = Text → Voice = **NO microphone permissions needed**  
 **Speech-to-Text (STT)** = Voice → Text = **Microphone permissions required**
 
 If you're only using TTS features, you don't need any special permissions!
