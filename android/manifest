@@ -15,4 +15,4 @@ name: utterance
 moduleid: bencoding.utterance
 guid: 9e866641-584f-4790-b3a0-4a85ff81e25b
 platform: android
-minsdk: 12.0.0
+minsdk: 13.0.0
