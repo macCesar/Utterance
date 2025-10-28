@@ -1,7 +1,7 @@
 # 🎙️ Utterance v3.0
 ### Modern Text-to-Speech & Speech-to-Text for Titanium
 
-[![Titanium](http://www-static.appcelerator.com/badges/titanium-git-badge-sq.png)](http://www.appcelerator.com/titanium/) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://github.com/m1ga/Utterance)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://github.com/m1ga/Utterance)
 
 **Utterance v3.0** brings native Text-to-Speech and Speech-to-Text capabilities to your Titanium applications with a completely modernized API, enhanced performance, and cross-platform consistency.
 
