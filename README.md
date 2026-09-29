@@ -662,7 +662,7 @@ See the [contributing guidelines](CONTRIBUTING.md).
 
 ## Support
 
-- [Migration guide](documentation/UTTERANCE_v3_1_GUIDE.md)
+- [Migration guide](documentation/MIGRATION_GUIDE.md)
 - [Examples](examples/)
 - [GitHub issues](https://github.com/macCesar/Utterance/issues)
 

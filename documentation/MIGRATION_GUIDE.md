@@ -1,4 +1,4 @@
-# Utterance v3.1: migration and optimization guide
+# Utterance v3.2: migration and optimization guide
 
 Upgrade notes for Utterance, from 2.x to 3.1 and from 3.1 to 3.2.
 
