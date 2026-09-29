@@ -1405,7 +1405,7 @@ if (compatibility.supported) {
 
 ### Do
 
-1. Check support with `isSupport()` before starting recognition.
+1. Check support with `isSupported()` before starting recognition.
 2. Request microphone permission on Android 6.0+.
 3. Handle recognition errors with a fallback.
 4. Check the network state: speech recognition needs an internet connection.
@@ -1416,7 +1416,7 @@ if (compatibility.supported) {
 // ✅ Good practice
 const speechToText = utterance.createSpeechToText();
 
-if (speechToText.isSupport()) {
+if (speechToText.isSupported()) {
     speechToText.addEventListener('error', (event) => {
         console.error("Handled error:", event.error);
         // Implement fallback
@@ -1445,7 +1445,7 @@ speechToText.startSpeechToText({
 });
 
 // ✅ Good practice
-if (Ti.Platform.osname === 'android' && speechToText.isSupport()) {
+if (Ti.Platform.osname === 'android' && speechToText.isSupported()) {
     speechToText.startSpeechToText({
         promptText: "Please speak your command clearly into the microphone",
         maxResults: 3,
