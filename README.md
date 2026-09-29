@@ -37,13 +37,13 @@ Utterance v3.2 keeps text-to-speech off Android's main thread and adds voice sel
 
 ## Requirements
 
-| Platform     | Minimum        | Recommended     |
-| ------------ | -------------- | --------------- |
-| Titanium SDK | 12.7.0+        | Latest          |
-| iOS          | 11.0+          | 15.0+           |
-| Android      | 5.0+ (API 21+) | 10.0+ (API 29+) |
-| Xcode        | 13.0+          | Latest          |
-| Android SDK  | Target API 33+ | Latest          |
+| Platform     | Minimum                             | Recommended     |
+| ------------ | ----------------------------------- | --------------- |
+| Titanium SDK | 12.0.0+ (iOS), 13.0.0+ (Android)    | Latest          |
+| iOS          | 15.0+                               | Latest          |
+| Android      | 5.0+ (API 21+)                      | 10.0+ (API 29+) |
+| Xcode        | 13.0+                               | Latest          |
+| Android SDK  | Target API 33+                      | Latest          |
 
 ## Installation
 
