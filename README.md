@@ -1,73 +1,61 @@
-# 🎙️ Utterance v3.2
-### Modern Text-to-Speech & Speech-to-Text for Titanium
+# Utterance v3.2
+### Text-to-speech and speech-to-text for Titanium
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://github.com/macCesar/Utterance)
 
-**Utterance v3.2** keeps text-to-speech off Android's main thread and adds voice selection: list the installed voices, pick one, or let the module choose the best one for a language.
+Utterance v3.2 keeps text-to-speech off Android's main thread and adds voice selection: list the installed voices, pick one, or let the module choose the best one for a language.
 
----
+## What's new
 
-## 🚀 What's New
+### v3.2.0: Android ANR fix and voice selection
+- Android: `startSpeaking()`, `stopSpeaking()`, `cancelSpeaking()`, `preloadVoiceData()`, `setEngine()` and the initial voice setup run on a background thread. Android's `TextToSpeech` blocks while it connects to the engine, and on the main thread that wait was reported as `Input dispatching timed out`.
+- Android: `isSpeaking` reads a flag instead of asking the engine. Only the last utterance queued moves it, so a finished earlier one cannot turn it off.
+- `requestVoices()` delivers the installed voices in a `voices` event, with the same shape on both platforms: `{ id, name, language, quality }`. Android skips voices that need a network or are not downloaded; iOS skips novelty voices.
+- New `startSpeaking()` options: `voiceId` (an `id` from the `voices` event; falls back to `voice` if that voice is gone), `bestVoice` (highest-quality installed voice for `voice`, same region first) and `queue` (add the text after the one being spoken instead of cutting it off; `completed` fires once, when the queue ends).
+- iOS: `voice: 'es_MX'` is accepted as `es-MX`, and out-of-range `rate`, `pitchMultiplier` and `volume` values are now rejected; before, the range check always passed.
+- The iOS deployment target is 15.0, the minimum of Titanium SDK 13.4.1 and of current Xcode.
 
-### v3.2.0 – Android ANR fix and voice selection
-- 🧵 **No TTS calls on the main thread (Android)**: `startSpeaking()`, `stopSpeaking()`, `cancelSpeaking()`, `preloadVoiceData()`, `setEngine()` and the initial voice setup run on a background thread. Android's `TextToSpeech` blocks while it connects to the engine, and on the main thread that wait was reported as `Input dispatching timed out`.
-- ⚡ **`isSpeaking` reads a flag (Android)**: it no longer asks the engine. Only the last utterance queued moves it, so a finished earlier one cannot turn it off.
-- 🎙️ **`requestVoices()`** delivers the installed voices in a `voices` event, with the same shape on both platforms: `{ id, name, language, quality }`. Android skips voices that need a network or are not downloaded; iOS skips novelty voices.
-- 🎯 **`startSpeaking()` options**: `voiceId` (an `id` from the `voices` event; falls back to `voice` if that voice is gone), `bestVoice` (highest-quality installed voice for `voice`, same region first) and `queue` (add the text after the one being spoken instead of cutting it off; `completed` fires once, when the queue ends).
-- 🐛 **iOS**: `voice: 'es_MX'` is accepted as `es-MX`, and out-of-range `rate`, `pitchMultiplier` and `volume` values are now rejected; before, the range check always passed.
-- 🛠️ **iOS deployment target 15.0**, the minimum of Titanium SDK 13.4.1 and of current Xcode.
+### v3.1: performance and reliability
+- Speech starts as soon as the engine is initialized; the 100 ms warm-up is gone.
+- Flags are reset in one place, which cuts about 89 % of the atomic operations per utterance.
+- Removed the unused `reset()` method and the old readiness checks.
+- Fast sequences, such as reading cards one after another, no longer drop utterances, because cancellation takes fewer steps.
 
-### v3.1 – Performance & Reliability
-- 🚀 **Zero-delay speech startup**: removed the legacy 100 ms warm-up; speech now begins immediately once initialised.
-- ⚡ **Optimized flag management**: centralized resets cut redundant atomic operations by roughly 89 % per utterance.
-- 🧹 **API cleanup**: retired the unused `reset()` method and legacy readiness checks, simplifying the surface area.
-- 🎮 **Rapid speech stability**: rapid card-style sequences run without dropped utterances thanks to streamlined cancellation handling.
+### v3.0: rewrite
+#### Breaking changes
+- Requires iOS 11+, Android 5.0 (API 21)+ and Titanium SDK 12.7.0+. iOS 7–10, Android 4.x and older SDKs are no longer supported.
+- The module was rewritten with more voice control and voice quality detection. Old workarounds were removed to make it faster.
 
-### v3.0 – Core Modernization
-#### ⚠️ Major Upgrade
-- **iOS 11+** required (dropped iOS 7-10 support)
-- **Android 5.0+ (API 21+)** required (dropped Android 4.x support)
-- **Titanium SDK 12.7.0+** required (dropped older SDK versions)
-- **Modern APIs**: Complete rewrite with enhanced voice control and quality detection
-- **Cross-Platform Rate Normalization**: Consistent speech rates across iOS and Android
-- **Performance Optimizations**: Removed legacy workarounds for faster execution
+#### Features
+- The same `rate` value sounds equally fast or slow on iOS and Android.
+- Voice information includes a quality value.
+- Better language detection and availability checks.
+- An automatic warm-up keeps Android from losing the first utterance.
+- Method, property and event names are the same on both platforms.
+- `isSpeaking` works as a property and as `isSpeaking()` on both platforms.
+- Built for current iOS and Android versions.
 
-#### ✨ Modern Features
-- 🎯 **Cross-Platform Speech Rate Consistency**: Same rate values work identically on iOS and Android
-- 🗣️ **Advanced Voice Selection**: Access detailed voice information with quality indicators
-- 🌍 **Enhanced Language Support**: Better language detection and availability checking
-- ⚡ **Automatic TTS Warm-up**: Prevents first speech loss on Android devices
-- 🔄 **Standardized Events**: Unified event system across platforms
-- 📱 **Modern Device Support**: Optimized for latest iOS and Android versions
-- 🎵 **Perceptual Rate Equivalence**: Speech rates sound equally fast/slow on both platforms
-- 🔗 **Unified API**: Consistent method and property names across iOS and Android
-- ✅ **Fixed API Inconsistencies**: Both `isSpeaking` property and `isSpeaking()` method work on both platforms
+## Requirements
 
----
+| Platform     | Minimum        | Recommended     |
+| ------------ | -------------- | --------------- |
+| Titanium SDK | 12.7.0+        | Latest          |
+| iOS          | 11.0+          | 15.0+           |
+| Android      | 5.0+ (API 21+) | 10.0+ (API 29+) |
+| Xcode        | 13.0+          | Latest          |
+| Android SDK  | Target API 33+ | Latest          |
 
-## 📋 Requirements
+## Installation
 
-| Platform         | Minimum Version | Recommended     |
-| ---------------- | --------------- | --------------- |
-| **Titanium SDK** | 12.7.0+         | Latest          |
-| **iOS**          | 11.0+           | 15.0+           |
-| **Android**      | 5.0+ (API 21+)  | 10.0+ (API 29+) |
-| **Xcode**        | 13.0+           | Latest          |
-| **Android SDK**  | Target API 33+  | Latest          |
+### Download the compiled module
+- [Releases](https://github.com/macCesar/Utterance/releases): each release has the iOS and Android zips attached
+- [iOS dist folder](https://github.com/macCesar/Utterance/tree/main/ios/dist)
+- [Android dist folder](https://github.com/macCesar/Utterance/tree/main/android/dist)
 
----
-
-## 📦 Installation
-
-### Download Pre-compiled Module
-- [📦 Releases](https://github.com/macCesar/Utterance/releases) — iOS and Android zips attached to each release
-- [📱 iOS Distribution](https://github.com/macCesar/Utterance/tree/main/ios/dist)
-- [🤖 Android Distribution](https://github.com/macCesar/Utterance/tree/main/android/dist)
-
-### Setup Instructions
-1. Download the latest release for your target platform(s)
-2. Install the module in your Titanium project
-3. Add to your `tiapp.xml`:
+### Setup
+1. Download the latest release for your platforms.
+2. Install the module in your Titanium project.
+3. Add it to `tiapp.xml`:
 
 ```xml
 <modules>
@@ -76,11 +64,7 @@
 </modules>
 ```
 
-4. **Configure Permissions** in your `tiapp.xml`:
-
-**For Text-to-Speech (TTS) - No special permissions required:**
-
-**For Speech-to-Text (STT) - Microphone permissions required:**
+4. Add permissions to `tiapp.xml`. Text-to-speech needs none; speech-to-text needs the microphone:
 ```xml
 <ios>
     <plist>
@@ -107,17 +91,15 @@
 </android>
 ```
 
-1. Import in your JavaScript:
+5. Require the module:
 
 ```javascript
 const utterance = require('bencoding.utterance');
 ```
 
----
+## Quick start
 
-## 🎯 Quick Start
-
-### 🗣️ Text-to-Speech (Cross-Platform)
+### Text-to-speech (iOS and Android)
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -136,7 +118,7 @@ speech.startSpeaking({
 });
 ```
 
-### 🎤 Speech-to-Text (Android Only)
+### Speech-to-text (Android only)
 
 ```javascript
 const speechToText = utterance.createSpeechToText();
@@ -159,13 +141,11 @@ speechToText.startSpeechToText({
 });
 ```
 
----
+## Features
 
-## 🎛️ Core Features
+### Speech rate on both platforms
 
-### 🎯 Cross-Platform Speech Rate Normalization
-
-**NEW in v3.0**: Solves the long-standing cross-platform speech rate inconsistency!
+Since v3.0, each rate constant sounds about as fast on iOS as on Android, although the underlying values differ.
 
 ```javascript
 const speech = utterance.createSpeech();
@@ -186,7 +166,7 @@ speech.startSpeaking({
 });
 ```
 
-### 🗣️ Advanced Voice Selection (v3.0+)
+### Voice selection (v3.0+)
 
 ```javascript
 const speech = utterance.createSpeech();
@@ -209,7 +189,7 @@ if (spanishVoices.length > 0) {
 }
 ```
 
-### 🎤 Enhanced Speech-to-Text (Android)
+### Speech-to-text events (Android)
 
 ```javascript
 const speechToText = utterance.createSpeechToText();
@@ -237,36 +217,32 @@ speechToText.startSpeechToText({
 });
 ```
 
----
-
-## 📚 API Reference
+## API reference
 
 ### Text-to-Speech Methods
 
-| Method                     | Platform      | Description                                                |
-| -------------------------- | ------------- | ---------------------------------------------------------- |
-| `startSpeaking(options)`   | iOS, Android  | Begin speech synthesis                                     |
-| `pauseSpeaking(boundary?)` | iOS, Android* | Pause current speech                                       |
-| `continueSpeaking()`       | iOS, Android* | Resume paused speech                                       |
-| `stopSpeaking(boundary?)`  | iOS, Android  | Stop current speech                                        |
-| `isSpeaking`               | iOS, Android  | **Property**: Check if currently speaking (v3.0 unified) ✅ |
-| `isSpeaking()`             | iOS, Android  | **Method**: Check if currently speaking (v3.0 unified) ✅   |
-| `isSupported()`            | iOS, Android  | Check platform support (v3.0 unified) ✅                    |
-| `getModernVoices()`        | iOS, Android  | Get detailed voice information (v3.0+)                     |
-| `requestVoices()`          | iOS, Android  | Installed voices, delivered in a `voices` event (v3.2.0)   |
-| `getVoices()`              | iOS, Android  | Get basic voice list (legacy)                              |
+| Method                     | Platform      | Description                                              |
+| -------------------------- | ------------- | -------------------------------------------------------- |
+| `startSpeaking(options)`   | iOS, Android  | Start speaking                                           |
+| `pauseSpeaking(boundary?)` | iOS, Android* | Pause the current speech                                 |
+| `continueSpeaking()`       | iOS, Android* | Resume paused speech                                     |
+| `stopSpeaking(boundary?)`  | iOS, Android  | Stop the current speech                                  |
+| `isSpeaking`               | iOS, Android  | Property: whether speech is in progress (both since v3.0) |
+| `isSpeaking()`             | iOS, Android  | Method: whether speech is in progress (both since v3.0)  |
+| `isSupported()`            | iOS, Android  | Whether the platform supports TTS (both since v3.0)      |
+| `getModernVoices()`        | iOS, Android  | Detailed voice information (v3.0+)                       |
+| `requestVoices()`          | iOS, Android  | Installed voices, delivered in a `voices` event (v3.2.0) |
+| `getVoices()`              | iOS, Android  | Basic voice list (legacy)                                |
 
-*\*Android provides compatibility events but doesn't actually pause/resume*
+*\*Android sends the events but does not pause or resume the speech.*
 
-`startSpeaking()` options added in v3.2.0: `voiceId`, `bestVoice` and `queue` — see What's New.
+`startSpeaking()` options added in v3.2.0: `voiceId`, `bestVoice` and `queue`. See [What's new](#whats-new).
 
 *On Android, `getModernVoices()`, `getModernLanguages()`, `isLanguageAvailable()`, `isNetworkRequired()`, `getEngineInfo()` and `getDiagnostics()` return data from the engine, so they wait for it while it connects. Call them after the `initialized` event, not from a click handler.*
 
-#### 🔗 **v3.0 API Unification Success: Complete Cross-Platform Consistency** ✅
+#### Same API on both platforms since v3.0
 
-**Problem Solved**: Previous versions had frustrating inconsistencies that required platform-specific code:
-
-**Before v3.0** (inconsistent - required platform detection):
+Before v3.0, `isSpeaking` was a method on Android and a property on iOS, so code had to check the platform:
 ```javascript
 // ❌ OLD: Had to write platform-specific code
 if (Ti.Platform.osname === 'android') {
@@ -278,7 +254,7 @@ if (Ti.Platform.osname === 'android') {
 }
 ```
 
-**v3.0 Solution** - Complete unification achieved:
+Since v3.0, the same code runs on both:
 ```javascript
 // ✅ NEW: Same code works perfectly on both platforms!
 if (speech.isSpeaking) {        // Property: works everywhere
@@ -294,18 +270,11 @@ if (speech.isSupported()) {     // Method: confirmed working everywhere
 }
 ```
 
-**Developer Benefits**:
-- 🚫 **No more platform detection code needed**
-- ✅ **Write once, works everywhere**
-- 🎯 **Choose your preferred style**: property or method
-- 🔄 **Backward compatibility**: existing code continues working
-- 📝 **Cleaner, more maintainable code**
+Use the property or the method, whichever you prefer. Existing code keeps working.
 
----
+## Events
 
-## 🎵 Events Reference
-
-### Text-to-Speech Events
+### Text-to-speech events
 
 | Event       | Platform      | Description                  |
 | ----------- | ------------- | ---------------------------- |
@@ -316,7 +285,7 @@ if (speech.isSupported()) {     // Method: confirmed working everywhere
 | `continued` | iOS, Android* | Speech synthesis resumed     |
 | `canceled`  | iOS, Android  | Speech synthesis canceled    |
 
-### Speech-to-Text Events (Android Only)
+### Speech-to-text events (Android only)
 
 | Event       | Description                       |
 | ----------- | --------------------------------- |
@@ -324,11 +293,9 @@ if (speech.isSupported()) {     // Method: confirmed working everywhere
 | `completed` | Speech recognition completed      |
 | `error`     | Speech recognition error occurred |
 
----
+## Examples
 
-## 💡 Practical Examples
-
-### Complete Voice Control Application
+### Voice control app
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -442,7 +409,7 @@ voiceController.speak("This is fast speech", {
 voiceController.listen("Say something...");
 ```
 
-### Multi-Language Support Example
+### Several languages
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -509,11 +476,9 @@ multiLang.speakInLanguage("Hola, ¿cómo estás hoy?", "es");
 multiLang.speakInLanguage("Bonjour, comment allez-vous aujourd'hui?", "fr");
 ```
 
----
+## Advanced configuration
 
-## 🔧 Advanced Configuration
-
-### Cross-Platform Unified API Examples
+### Unified API
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -574,7 +539,7 @@ voiceManager.speak("Hello from unified API!");
 console.log("Status:", voiceManager.getStatus());
 ```
 
-### Migration from v2.x - Before vs After
+### Before and after v3.0
 
 ```javascript
 // ❌ BEFORE v3.0 (platform-specific nightmare)
@@ -609,18 +574,12 @@ class NewVoiceManager {
 }
 ```
 
----
+## Migrating from v2.x
 
-## 🔗 Migration from v2.x
+### API changes
 
-### API Unification Checklist ✅
-
-If you're upgrading from Utterance v2.x, here's what's been fixed and unified:
-
-#### ✅ **Fixed: `isSpeaking` Inconsistency**
-- **Before**: Android = method only, iOS = property only
-- **After**: Both platforms support both property AND method
-- **Action**: Choose your preferred style and use consistently
+#### `isSpeaking`
+In v2.x, `isSpeaking` was a method on Android and a property on iOS. Both forms now work on both platforms; pick one and use it everywhere.
 
 ```javascript
 // Both now work on both platforms:
@@ -628,15 +587,11 @@ if (speech.isSpeaking) { /* property */ }
 if (speech.isSpeaking()) { /* method */ }
 ```
 
-#### ✅ **Fixed: `isSupported` Missing on Platforms**  
-- **Before**: Inconsistent availability
-- **After**: Available as method on both platforms
-- **Action**: Use `speech.isSupported()` everywhere
+#### `isSupported()`
+Its availability varied by platform. It is now a method on both: use `speech.isSupported()`.
 
-#### ✅ **Enhanced: Cross-Platform Rate Constants**
-- **Before**: Different rate values needed per platform
-- **After**: Same rate constants work identically
-- **Action**: Replace manual rate calculations with unified constants
+#### Rate constants
+v2.x needed a different rate value per platform. The rate constants sound the same on both, so replace hand-tuned rates with them.
 
 ```javascript
 // Before v3.0 (manual platform adjustment)
@@ -646,15 +601,15 @@ const rate = Ti.Platform.osname === 'android' ? 0.6 : 0.45;
 const rate = speech.SLOW_SPEECH_RATE;
 ```
 
-### Quick Migration Steps
+### Steps
 
-1. ✅ **Remove Platform Detection Code**:
+1. Remove platform checks:
    ```javascript
    // Remove these platform checks:
    // if (Ti.Platform.osname === 'android') { ... }
    ```
 
-2. ✅ **Standardize `isSpeaking` Usage**:
+2. Use one form of `isSpeaking`:
    ```javascript
    // Choose one style and use everywhere:
    if (speech.isSpeaking) { ... }     // Property (recommended)
@@ -662,7 +617,7 @@ const rate = speech.SLOW_SPEECH_RATE;
    if (speech.isSpeaking()) { ... }   // Method (also works)
    ```
 
-3. ✅ **Use Unified Rate Constants**:
+3. Use the rate constants:
    ```javascript
    // Replace manual rates with constants:
    speech.startSpeaking({
@@ -671,24 +626,17 @@ const rate = speech.SLOW_SPEECH_RATE;
    });
    ```
 
-4. ✅ **Verify `isSupported()` Usage**:
+4. Check `isSupported()` calls:
    ```javascript
    // This now works everywhere:
    if (speech.isSupported()) { ... }
    ```
 
----
+## Permissions
 
-## 🔐 **Important Permission Note**
+Text-to-speech needs no permissions. Speech-to-text needs the microphone permissions shown under [Setup](#setup).
 
-**Text-to-Speech (TTS)** = Text → Voice = **NO microphone permissions needed**  
-**Speech-to-Text (STT)** = Voice → Text = **Microphone permissions required**
-
-If you're only using TTS features, you don't need any special permissions!
-
----
-
-## 📄 License
+## License
 
 Utterance is available under the Apache 2.0 license.
 
@@ -708,20 +656,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
----
+## Contributing
 
-## 🤝 Contributing
+See the [contributing guidelines](CONTRIBUTING.md).
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+## Support
 
----
+- [Migration guide](documentation/UTTERANCE_v3_1_GUIDE.md)
+- [Examples](examples/)
+- [GitHub issues](https://github.com/macCesar/Utterance/issues)
 
-## 📞 Support
-
-- **Documentation**: [Utterance v3.1 Guide](documentation/UTTERANCE_v3_1_GUIDE.md)
-- **Examples**: [Practical Examples](examples/)
-- **Issues**: [GitHub Issues](https://github.com/macCesar/Utterance/issues)
-
----
-
-*Built with ❤️ for the Titanium community*
