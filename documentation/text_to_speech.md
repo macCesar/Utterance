@@ -1,13 +1,16 @@
-# Utterance v3.2: text to speech
+# Utterance v3.3: text to speech
 
 Utterance speaks text in Titanium apps with AVSpeechSynthesizer on iOS and TextToSpeech on Android, using the same API and rate values on both.
 
-## Requirements (v3.2)
-* Titanium SDK 12.0.0+ on iOS, 13.0.0+ on Android (the minimums in each module's `manifest`)
+## Requirements (v3.3)
+* Titanium SDK 13.0.0+ (the minimum in each module's `manifest`)
 * iOS 15.0+ (was 11.0+; current Xcode no longer builds for older targets)
 * Android 5.0+ (API level 21+)
 
 ## What's new
+
+### v3.3
+- iOS now requires Titanium SDK 13.0.0, like Android. No API changes.
 
 ### v3.2
 - No TTS calls on Android's main thread. Speaking, stopping, canceling, preloading, changing engine and the initial voice setup run on a background thread. Android's `TextToSpeech` waits on an internal lock while it connects to the engine; on the main thread that wait was reported by Google Play as an ANR (`Input dispatching timed out`).

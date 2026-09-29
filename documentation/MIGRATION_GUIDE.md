@@ -1,6 +1,11 @@
-# Utterance v3.2: migration and optimization guide
+# Utterance v3.3: migration and optimization guide
 
-Upgrade notes for Utterance, from 2.x to 3.1 and from 3.1 to 3.2.
+Upgrade notes for Utterance, from 2.x to 3.1, from 3.1 to 3.2 and from 3.2 to 3.3.
+
+## Upgrading from 3.2 to 3.3
+
+1. Install the 3.3.0 packages (`bencoding.utterance-iphone-3.3.0.zip`, `bencoding.utterance-android-3.3.0.zip`).
+2. iOS apps need Titanium SDK 13.0.0 or later, as Android apps already did. Nothing else changes.
 
 ## Upgrading from 3.1 to 3.2
 

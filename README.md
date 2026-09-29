@@ -1,11 +1,15 @@
-# Utterance v3.2
+# Utterance v3.3
 ### Text-to-speech and speech-to-text for Titanium
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://github.com/macCesar/Utterance)
 
-Utterance v3.2 keeps text-to-speech off Android's main thread and adds voice selection: list the installed voices, pick one, or let the module choose the best one for a language.
+Utterance v3.3 requires Titanium SDK 13.0.0 on both platforms. Since v3.2 it keeps text-to-speech off Android's main thread and lets you list the installed voices, pick one, or let the module choose the best one for a language.
 
 ## What's new
+
+### v3.3.0: Titanium SDK 13.0.0 on iOS
+- iOS now requires Titanium SDK 13.0.0, like Android. SDK 12.x lets an app target iOS 13, but the module is built for iOS 15.0, which SDK 13.x already requires.
+- No API changes.
 
 ### v3.2.0: Android ANR fix and voice selection
 - Android: `startSpeaking()`, `stopSpeaking()`, `cancelSpeaking()`, `preloadVoiceData()`, `setEngine()` and the initial voice setup run on a background thread. Android's `TextToSpeech` blocks while it connects to the engine, and on the main thread that wait was reported as `Input dispatching timed out`.
@@ -39,7 +43,7 @@ Utterance v3.2 keeps text-to-speech off Android's main thread and adds voice sel
 
 | Platform     | Minimum                             | Recommended     |
 | ------------ | ----------------------------------- | --------------- |
-| Titanium SDK | 12.0.0+ (iOS), 13.0.0+ (Android)    | Latest          |
+| Titanium SDK | 13.0.0+                             | Latest          |
 | iOS          | 15.0+                               | Latest          |
 | Android      | 5.0+ (API 21+)                      | 10.0+ (API 29+) |
 | Xcode        | 13.0+                               | Latest          |
@@ -107,7 +111,7 @@ const speech = utterance.createSpeech();
 
 // Simple speech with modern API
 speech.startSpeaking({
-    text: "Hello! This is Utterance v3.2 with cross-platform consistency!"
+    text: "Hello! This is Utterance v3.3 with cross-platform consistency!"
 });
 
 // Advanced configuration with standardized rates
