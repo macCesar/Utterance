@@ -1,10 +1,10 @@
-# Utterance v3.1: Speech to Text
+# Utterance v3.2: Speech to Text
 ### Voice recognition for Titanium Android apps
 
 Utterance adds Speech-to-Text to Android Titanium projects through the native `android.speech.RecognizerIntent` API. The examples use ES6+.
 
-## Requirements for v3.1
-* Titanium SDK 12.7.0+ (was 3.2.1+)
+## Requirements (v3.2)
+* Titanium SDK 13.0.0+ (the minimum in `android/manifest`)
 * Android 5.0+ / API level 21+ (was Android 4+)
 * iOS: Speech-to-Text is not supported (TTS only)
 
