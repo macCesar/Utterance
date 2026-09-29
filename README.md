@@ -1,13 +1,21 @@
-# 🎙️ Utterance v3.1
+# 🎙️ Utterance v3.2
 ### Modern Text-to-Speech & Speech-to-Text for Titanium
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://github.com/m1ga/Utterance)
 
-**Utterance v3.1** builds on the v3.0 rewrite with an immediate-speaking engine, smarter flag handling, and a cleaner API while preserving the modern cross-platform feature set.
+**Utterance v3.2** keeps text-to-speech off Android's main thread and adds voice selection: list the installed voices, pick one, or let the module choose the best one for a language.
 
 ---
 
 ## 🚀 What's New
+
+### v3.2.0 – Android ANR fix and voice selection
+- 🧵 **No TTS calls on the main thread (Android)**: `startSpeaking()`, `stopSpeaking()`, `cancelSpeaking()`, `preloadVoiceData()`, `setEngine()` and the initial voice setup run on a background thread. Android's `TextToSpeech` blocks while it connects to the engine, and on the main thread that wait was reported as `Input dispatching timed out`.
+- ⚡ **`isSpeaking` reads a flag (Android)**: it no longer asks the engine. Only the last utterance queued moves it, so a finished earlier one cannot turn it off.
+- 🎙️ **`requestVoices()`** delivers the installed voices in a `voices` event, with the same shape on both platforms: `{ id, name, language, quality }`. Android skips voices that need a network or are not downloaded; iOS skips novelty voices.
+- 🎯 **`startSpeaking()` options**: `voiceId` (an `id` from the `voices` event; falls back to `voice` if that voice is gone), `bestVoice` (highest-quality installed voice for `voice`, same region first) and `queue` (add the text after the one being spoken instead of cutting it off; `completed` fires once, when the queue ends).
+- 🐛 **iOS**: `voice: 'es_MX'` is accepted as `es-MX`, and out-of-range `rate`, `pitchMultiplier` and `volume` values are now rejected; before, the range check always passed.
+- 🛠️ **iOS deployment target 15.0**, the minimum of Titanium SDK 13.4.1 and of current Xcode.
 
 ### v3.1 – Performance & Reliability
 - 🚀 **Zero-delay speech startup**: removed the legacy 100 ms warm-up; speech now begins immediately once initialised.
@@ -52,8 +60,9 @@
 ## 📦 Installation
 
 ### Download Pre-compiled Module
-- [📱 iOS Distribution](https://github.com/m1ga/Utterance/tree/master/ios/dist)
-- [🤖 Android Distribution](https://github.com/m1ga/Utterance/tree/master/android/dist)
+- [📦 Releases](https://github.com/macCesar/Utterance/releases) — iOS and Android zips attached to each release
+- [📱 iOS Distribution](https://github.com/macCesar/Utterance/tree/main/ios/dist)
+- [🤖 Android Distribution](https://github.com/macCesar/Utterance/tree/main/android/dist)
 
 ### Setup Instructions
 1. Download the latest release for your target platform(s)
@@ -116,7 +125,7 @@ const speech = utterance.createSpeech();
 
 // Simple speech with modern API
 speech.startSpeaking({
-    text: "Hello! This is Utterance v3.1 with cross-platform consistency!"
+    text: "Hello! This is Utterance v3.2 with cross-platform consistency!"
 });
 
 // Advanced configuration with standardized rates
@@ -244,9 +253,14 @@ speechToText.startSpeechToText({
 | `isSpeaking()`             | iOS, Android  | **Method**: Check if currently speaking (v3.0 unified) ✅   |
 | `isSupported()`            | iOS, Android  | Check platform support (v3.0 unified) ✅                    |
 | `getModernVoices()`        | iOS, Android  | Get detailed voice information (v3.0+)                     |
+| `requestVoices()`          | iOS, Android  | Installed voices, delivered in a `voices` event (v3.2.0)   |
 | `getVoices()`              | iOS, Android  | Get basic voice list (legacy)                              |
 
 *\*Android provides compatibility events but doesn't actually pause/resume*
+
+`startSpeaking()` options added in v3.2.0: `voiceId`, `bestVoice` and `queue` — see What's New.
+
+*On Android, `getModernVoices()`, `getModernLanguages()`, `isLanguageAvailable()`, `isNetworkRequired()`, `getEngineInfo()` and `getDiagnostics()` return data from the engine, so they wait for it while it connects. Call them after the `initialized` event, not from a click handler.*
 
 #### 🔗 **v3.0 API Unification Success: Complete Cross-Platform Consistency** ✅
 
@@ -296,7 +310,8 @@ if (speech.isSupported()) {     // Method: confirmed working everywhere
 | Event       | Platform      | Description                  |
 | ----------- | ------------- | ---------------------------- |
 | `started`   | iOS, Android  | Speech synthesis has started |
-| `completed` | iOS, Android  | Speech synthesis completed   |
+| `completed` | iOS, Android  | Speech synthesis completed; with `queue: true`, once the whole queue ends |
+| `voices`    | iOS, Android  | Reply to `requestVoices()`: `{ voices: [{ id, name, language, quality }] }` |
 | `paused`    | iOS, Android* | Speech synthesis paused      |
 | `continued` | iOS, Android* | Speech synthesis resumed     |
 | `canceled`  | iOS, Android  | Speech synthesis canceled    |
