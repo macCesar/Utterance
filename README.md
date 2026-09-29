@@ -704,7 +704,7 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 ## 📞 Support
 
 - **Documentation**: [Utterance v3.1 Guide](documentation/UTTERANCE_v3_1_GUIDE.md)
-- **Examples**: [Practical Examples](example/)
+- **Examples**: [Practical Examples](examples/)
 - **Issues**: [GitHub Issues](https://github.com/m1ga/Utterance/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/m1ga/Utterance/discussions)
 

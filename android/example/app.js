@@ -1,5 +1,5 @@
 /**
- * Utterance v3.0 - Complete Example Application
+ * Utterance v3.1 - Complete Example Application
  * Demonstrates all TTS and STT features with modern JavaScript patterns
  * 
  * Features demonstrated:
@@ -19,7 +19,7 @@ const utterance = require('bencoding.utterance');
 
 class UtteranceV3Demo {
   constructor() {
-    console.log('🎙️ Initializing Utterance v3.0 Complete Demo');
+    console.log('🎙️ Initializing Utterance v3.1 Complete Demo');
     console.log(`📱 Platform: ${Ti.Platform.osname} ${Ti.Platform.version}`);
 
     // Create UI first
@@ -45,14 +45,14 @@ class UtteranceV3Demo {
   createUI() {
     // Create main window
     this.window = Ti.UI.createWindow({
-      title: 'Utterance v3.0 Demo',
+      title: 'Utterance v3.1 Demo',
       backgroundColor: '#f5f5f5',
       layout: 'vertical'
     });
 
     // Header
     const header = Ti.UI.createLabel({
-      text: '🎙️ Utterance v3.0 Demo',
+      text: '🎙️ Utterance v3.1 Demo',
       font: { fontSize: 24, fontWeight: 'bold' },
       color: '#333',
       textAlign: 'center',
@@ -800,8 +800,8 @@ Current Step: ${status.currentStep}`;
   // =========================================================================
 
   startDemo() {
-    console.log('🎬 Starting Utterance v3.0 Interactive Demo');
-    this.updateUI('🎬 Starting demo...', 'Utterance v3.0 Interactive Demo Started', 0);
+    console.log('🎬 Starting Utterance v3.1 Interactive Demo');
+    this.updateUI('🎬 Starting demo...', 'Utterance v3.1 Interactive Demo Started', 0);
     this.isRunning = true;
     this.demoStep = 0;
     this.runDemoStep();
@@ -887,7 +887,7 @@ Current Step: ${status.currentStep}`;
           }, 2500); // ← AUMENTADO a 2500ms
         } else {
           this.updateUI('👋 Demo ending', 'Thank you for trying the demo', 8);
-          this.speak('Thank you for trying Utterance v3.0!', { language: 'en-US' });
+          this.speak('Thank you for trying Utterance v3.1!', { language: 'en-US' });
           setTimeout(() => this.stopDemo(), 3000);
         }
         break;
@@ -921,13 +921,13 @@ Current Step: ${status.currentStep}`;
       this.speech.stopSpeaking();
     }
 
-    console.log('✅ Utterance v3.0 Demo completed successfully!');
+    console.log('✅ Utterance v3.1 Demo completed successfully!');
 
     // Show final dialog
     setTimeout(() => {
       const dialog = Ti.UI.createAlertDialog({
         title: 'Demo Completed',
-        message: 'Utterance v3.0 demo has finished successfully!',
+        message: 'Utterance v3.1 demo has finished successfully!',
         buttonNames: ['Close App', 'Restart Demo']
       });
 
