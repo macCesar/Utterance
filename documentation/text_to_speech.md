@@ -1,4 +1,4 @@
-# Utterance v3.1 - Text to Speech 🗣️
+# Utterance v3.2 - Text to Speech 🗣️
 ### Modern Cross-Platform Speech Synthesis for Titanium
 
 [![Titanium](http://www-static.appcelerator.com/badges/titanium-git-badge-sq.png)](http://www.appcelerator.com/titanium/)
@@ -7,12 +7,19 @@ Utterance brings powerful Text-to-Speech capabilities to your Titanium projects 
 
 ---
 
-## 📋 Requirements v3.1
-* **Titanium SDK**: 12.7.0+ (was 3.2.1+)
-* **iOS**: 11.0+ (was iOS 7+)
-* **Android**: API Level 21+ / Android 5.0+ (was Android 4+)
+## 📋 Requirements v3.2
+* **Titanium SDK**: 12.7.0+ on iOS, 13.0.0+ on Android (the minimums in each module's `manifest`)
+* **iOS**: 15.0+ (was 11.0+; current Xcode no longer builds for older targets)
+* **Android**: API Level 21+ / Android 5.0+
 
 ## ✨ What's New
+
+### v3.2 Enhancements
+- 🧵 **No main-thread TTS calls on Android**: speaking, stopping, canceling, preloading, changing engine and the initial voice setup run on a background thread. Android's `TextToSpeech` waits on an internal lock while it connects to the engine; on the main thread that wait was reported by Google Play as an ANR (`Input dispatching timed out`).
+- ⚡ **`isSpeaking` without an engine round trip on Android**: it reads a flag that only the last queued utterance moves, so it answers immediately and an earlier utterance finishing cannot turn it off.
+- 🎙️ **`requestVoices()`**: installed voices, delivered asynchronously in a `voices` event with the same shape on both platforms. See [Installed Voices](#installed-voices-requestvoices-v32).
+- 🎯 **New `startSpeaking()` options**: `voiceId`, `bestVoice` and `queue`.
+- 🐛 **iOS fixes**: `voice` accepts `es_MX` as well as `es-MX`, and out-of-range `rate`, `pitchMultiplier` and `volume` values are now rejected (the range check always passed before).
 
 ### v3.1 Enhancements
 - 🚀 **Immediate speech startup**: eliminated the legacy 100 ms warm-up delay on Android.
@@ -165,6 +172,9 @@ Begin speech synthesis with enhanced v3.0 features.
 | `preUtteranceDelay`  | Float  | iOS only     | Delay before speaking (seconds)                  |
 | `postUtteranceDelay` | Float  | iOS only     | Delay after speaking (seconds)                   |
 | `pitch`              | Float  | Android only | Speech pitch. Default: 1.0                       |
+| `voiceId`            | String | Optional     | A voice `id` from the `voices` event (v3.2). If that voice is no longer installed, `voice` is used instead |
+| `bestVoice`          | Boolean| Optional     | When no `voiceId` applies, use the highest-quality installed voice for `voice`, same region first (v3.2). Default: `false` |
+| `queue`              | Boolean| Optional     | Speak after the current utterance instead of cutting it off (v3.2). `completed` fires once, when the queue ends. Default: `false` |
 
 ### Basic Usage Examples
 
@@ -253,6 +263,65 @@ try {
     const voices = speech.getVoices();
     console.log("Basic voices:", voices);
 }
+```
+
+### Installed Voices: `requestVoices()` (v3.2)
+
+`requestVoices()` returns immediately and delivers the list in a `voices` event. Use it to build a voice picker: on Android, `getModernVoices()` waits for the engine on the calling thread, and called from a tap while the engine is connecting it can freeze the app.
+
+Every voice has the same shape on both platforms:
+
+| Property   | Type   | Description |
+| ---------- | ------ | ----------- |
+| `id`       | String | Pass it as `voiceId` to `startSpeaking()`. iOS: the voice identifier. Android: the voice name |
+| `name`     | String | Display name on iOS (`Paulina`, `Juan`). Empty on Android, where engines only expose internal names |
+| `language` | String | BCP-47 tag, e.g. `es-MX`, `en-US` |
+| `quality`  | String | `default`, `enhanced` or `premium` |
+
+Only voices usable offline are listed: Android skips voices that need a network connection or are not downloaded, and iOS skips novelty voices (iOS 17+). Apps cannot download voices; on iOS users add them in **Settings › Accessibility › Spoken Content › Voices**.
+
+```javascript
+const speech = utterance.createSpeech();
+
+function onVoices({ voices }) {
+    speech.removeEventListener('voices', onVoices);
+
+    const spanish = voices.filter(voice => voice.language.startsWith('es'));
+    spanish.forEach(voice => console.log(`${voice.name || voice.id} · ${voice.language} · ${voice.quality}`));
+
+    // Later, speak with the one the user picked. If it was uninstalled in the
+    // meantime, the best installed es-MX voice speaks instead.
+    speech.startSpeaking({
+        text: 'El Gallo',
+        voiceId: spanish.length ? spanish[0].id : '',
+        voice: 'es_MX',
+        bestVoice: true
+    });
+}
+
+speech.addEventListener('voices', onVoices);
+speech.requestVoices();
+```
+
+### Best Installed Voice: `bestVoice` (v3.2)
+
+Without a `voiceId`, iOS speaks with the default voice for the language, and it keeps using the compact voice even when a better one is installed. `bestVoice: true` picks the installed voice with the highest quality for `voice`, preferring the same region (`es-MX` before `es-ES`). The result is cached per language for the life of the app.
+
+```javascript
+speech.startSpeaking({ text: 'La Dama', voice: 'es_MX', bestVoice: true });
+```
+
+### Queued Utterances: `queue` (v3.2)
+
+By default every `startSpeaking()` cuts off what is playing. With `queue: true` the text is spoken right after it, each part with its own voice and rate, and `completed` fires once, after the last one. Useful to say two sentences in two languages without a gap:
+
+```javascript
+speech.startSpeaking({ text: 'El Gallo', voice: 'es_MX' });
+speech.startSpeaking({ text: 'Winning table, number 3', voice: 'en_US', queue: true });
+
+speech.addEventListener('completed', () => {
+    // Both parts have been spoken.
+});
 ```
 
 ### Smart Voice Selection
@@ -413,9 +482,14 @@ speech.addEventListener('started', (event) => {
     console.log("Speech synthesis started");
 });
 
-// Speech completed
+// Speech completed (with queue: true, once the whole queue ends)
 speech.addEventListener('completed', (event) => {
     console.log("Speech synthesis completed");
+});
+
+// Reply to requestVoices() (v3.2)
+speech.addEventListener('voices', (event) => {
+    console.log(`Installed voices: ${event.voices.length}`);
 });
 
 // Speech paused (iOS and Android compatibility events)
@@ -674,9 +748,6 @@ if (Ti.Platform.osname === 'iphone' || Ti.Platform.osname === 'ipad') {
 } else if (Ti.Platform.osname === 'android') {
     // Android-specific features
     universalConfig.pitch = 1.0;
-    
-    // Warm up TTS for optimal performance
-    speech.warmUpTTS();
 }
 
 speech.startSpeaking(universalConfig);
@@ -1036,19 +1107,15 @@ robustTTS.quickSpeak("Quick and safe speech!");
 ### ✅ Do's
 
 1. **Use Cross-Platform Constants**: Always use `speech.SLOW_SPEECH_RATE` etc. for consistent behavior
-2. **Pre-warm on Android**: Call `speech.warmUpTTS()` early in your app lifecycle
+2. **Create the instance early**: The Android engine warms up on its own when `createSpeech()` connects; create one instance at startup and reuse it
 3. **Check Speaking State**: Use `speech.isSpeaking()` before starting new speech
 4. **Cache Voice Selection**: Store voice selection results for better performance
 5. **Handle Errors Gracefully**: Implement proper error handling and fallbacks
-6. **Use Modern APIs**: Prefer `getModernVoices()` over `getVoices()` when available
+6. **Use `requestVoices()` for voice pickers**: It answers with an event and never blocks the UI (v3.2)
 
 ```javascript
 // ✅ Good practice
 const speech = utterance.createSpeech();
-
-if (Ti.Platform.osname === 'android') {
-    speech.warmUpTTS(); // Pre-warm for performance
-}
 
 if (!speech.isSpeaking()) {
     speech.startSpeaking({
@@ -1064,6 +1131,7 @@ if (!speech.isSpeaking()) {
 2. **Don't Create Multiple Instances**: Reuse speech instances for better performance
 3. **Don't Ignore Error Events**: Always handle TTS errors appropriately
 4. **Don't Block UI**: Use events instead of blocking operations
+5. **Don't call `getModernVoices()` from a tap on Android**: It waits for the engine on the calling thread; use `requestVoices()`
 
 ```javascript
 // ❌ Bad practice

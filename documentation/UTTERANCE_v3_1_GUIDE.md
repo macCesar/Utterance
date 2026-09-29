@@ -4,6 +4,18 @@ A single reference for teams moving from the legacy 2.x releases to the modern U
 
 ---
 
+## Upgrading from 3.1 to 3.2
+
+Nothing that worked in 3.1 needs to change; 3.2 adds options and fixes.
+
+1. **Install the 3.2.0 packages** (`bencoding.utterance-iphone-3.2.0.zip`, `bencoding.utterance-android-3.2.0.zip`) and pin `version="3.2.0"` in `tiapp.xml` if more than one version sits in `modules/`.
+2. **iOS 15.0 is now the minimum** deployment target.
+3. **Android ANRs**: if Google Play reports `Input dispatching timed out` with `SpeechProxy.stopSpeaking` or `TextToSpeech.runAction` in the main thread, 3.2 fixes it: no engine call runs on the main thread anymore. No app changes needed.
+4. **Voice pickers**: replace `getModernVoices()` calls made from the UI with `requestVoices()` and its `voices` event, and pass the chosen voice's `id` as `voiceId`.
+5. **Optional**: `bestVoice: true` for the best installed voice of a language, and `queue: true` to chain utterances without a gap. See [text_to_speech.md](text_to_speech.md).
+
+---
+
 ## 1. Upgrade Checklist
 
 1. **Update module binaries** – install the 3.1.0 packages for iOS (`bencoding.utterance-iphone-3.1.0.zip`) and Android (`bencoding.utterance-android-3.1.0.zip`).
@@ -30,7 +42,7 @@ Utterance v3 delivered full parity between iOS and Android. v3.1 keeps that cont
 | `speechToText.startSpeechToText()`             | Android      | Shared event payloads (`started`, `completed`, `error`) across module.             |
 | Rate constants (`VERY_SLOW_SPEECH_RATE`, etc.) | iOS, Android | Produce perceptually equivalent speeds on both platforms.                          |
 
-Event names match on both platforms: `initialized`, `started`, `stopped`, `canceled`, `completed`, `error`.
+Event names match on both platforms: `initialized`, `started`, `stopped`, `canceled`, `completed`, `error`, and since 3.2 `voices`.
 
 ---
 
