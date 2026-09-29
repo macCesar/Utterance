@@ -20,4 +20,10 @@ project.xcworkspace
 *.out
 project.xcworkspace/
 .project
-update
+
+# Screenshots dropped at the repo root
+/*.png
+/*.jpg
+/*.jpeg
+/screen-capture*
+/Captura*
