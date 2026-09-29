@@ -1,8 +1,6 @@
 # Utterance v3.2 - Text to Speech 🗣️
 ### Modern Cross-Platform Speech Synthesis for Titanium
 
-[![Titanium](http://www-static.appcelerator.com/badges/titanium-git-badge-sq.png)](http://www.appcelerator.com/titanium/)
-
 Utterance brings powerful Text-to-Speech capabilities to your Titanium projects using iOS's Speech Synthesizer and Android's TextToSpeech engine with complete cross-platform consistency.
 
 ---

@@ -1,8 +1,6 @@
 # Utterance v3.1 - Speech to Text 🎤
 ### Modern Voice Recognition for Titanium Android
 
-[![Titanium](http://www-static.appcelerator.com/badges/titanium-git-badge-sq.png)](http://www.appcelerator.com/titanium/)
-
 Utterance provides powerful Speech-to-Text capabilities for your Android Titanium projects using the native `android.speech.RecognizerIntent` API with modern ES6+ implementation patterns.
 
 ---

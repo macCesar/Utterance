@@ -1,7 +1,7 @@
 # 🎙️ Utterance v3.2
 ### Modern Text-to-Speech & Speech-to-Text for Titanium
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://github.com/m1ga/Utterance)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://github.com/macCesar/Utterance)
 
 **Utterance v3.2** keeps text-to-speech off Android's main thread and adds voice selection: list the installed voices, pick one, or let the module choose the best one for a language.
 
