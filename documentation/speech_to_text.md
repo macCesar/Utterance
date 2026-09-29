@@ -1,41 +1,36 @@
-# Utterance v3.1 - Speech to Text 🎤
-### Modern Voice Recognition for Titanium Android
+# Utterance v3.1: Speech to Text
+### Voice recognition for Titanium Android apps
 
-Utterance provides powerful Speech-to-Text capabilities for your Android Titanium projects using the native `android.speech.RecognizerIntent` API with modern ES6+ implementation patterns.
+Utterance adds Speech-to-Text to Android Titanium projects through the native `android.speech.RecognizerIntent` API. The examples use ES6+.
 
----
+## Requirements for v3.1
+* Titanium SDK 12.7.0+ (was 3.2.1+)
+* Android 5.0+ / API level 21+ (was Android 4+)
+* iOS: Speech-to-Text is not supported (TTS only)
 
-## 📋 Requirements v3.1
-* **Titanium SDK**: 12.7.0+ (was 3.2.1+)
-* **Android**: API Level 21+ / Android 5.0+ (was Android 4+)
-* **iOS**: Speech-to-Text not supported (TTS only)
+## What's new
 
-## ✨ What's New
+### v3.1
+- Faster readiness checks: initialization follows the same path as TTS, so fewer retries happen before listening starts.
+- Clearer feedback when the user denies microphone access.
+- Event payloads have the same shape across the module, which makes troubleshooting easier.
 
-### v3.1 Enhancements
-- 🔄 **Faster readiness checks**: streamlined initialization mirrors the TTS improvements, reducing retries before listening starts.
-- 🛡️ **Hardened permission flow**: clearer feedback paths when microphone access is denied.
-- 📊 **Improved diagnostics**: consistent event payloads across the module for easier troubleshooting.
+### v3.0
+- Updated for current Android versions and Titanium SDK 12.7.0+, using newer Android APIs.
+- Better reporting of and recovery from recognition errors.
+- ES6+ examples.
+- A consistent event system.
+- All v2.x APIs work unchanged.
 
-### v3.0 Foundation
-- **Enhanced Compatibility**: Updated for modern Android versions and Titanium SDK 12.7.0+
-- **Improved Performance**: Optimized for newer Android APIs
-- **Better Error Handling**: Enhanced recognition error reporting and recovery
-- **Modern JavaScript Support**: ES6+ examples and patterns
-- **Standardized Events**: Consistent event system
-- **Backward Compatible**: All v2.x APIs continue to work unchanged
+## Installation and setup
 
----
-
-## 🚀 Installation & Setup
-
-### Import the Module
+### Import the module
 
 ```javascript
 const utterance = require('bencoding.utterance');
 ```
 
-### Required Permissions
+### Required permissions
 
 Add these permissions to your `tiapp.xml`:
 
@@ -54,11 +49,9 @@ Add these permissions to your `tiapp.xml`:
 </android>
 ```
 
----
+## Working with Speech-to-Text
 
-## 🎤 Working with Speech-to-Text
-
-### Creating a Speech-to-Text Instance
+### Creating a Speech-to-Text instance
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -80,15 +73,13 @@ if (!speechToText.isSupported()) {
 console.log("✅ Speech-to-Text ready!");
 ```
 
----
-
-## 📚 API Methods
+## API methods
 
 ### `startSpeechToText(options)`
 
-Begin speech recognition with comprehensive configuration options.
+Starts speech recognition with the options below.
 
-**Parameters:**
+Parameters:
 
 | Parameter       | Type     | Required     | Description                                        |
 | --------------- | -------- | ------------ | -------------------------------------------------- |
@@ -96,12 +87,12 @@ Begin speech recognition with comprehensive configuration options.
 | `maxResults`    | Integer  | Optional     | Maximum number of recognition results (default: 1) |
 | `languageModel` | Property | Optional     | Language model for recognition accuracy            |
 
-**Language Model Options:**
+Language models:
 
 - `speechToText.LANGUAGE_MODEL_WEB_SEARCH` - Optimized for web search terms
 - `speechToText.LANGUAGE_MODEL_FREE_FORM` - Optimized for free-form speech
 
-### Basic Usage
+### Basic usage
 
 ```javascript
 const speechToText = utterance.createSpeechToText();
@@ -121,7 +112,7 @@ speechToText.startSpeechToText({
 
 ### `isSupported()`
 
-Check if Speech-to-Text is supported on the current device.
+Checks whether Speech-to-Text is supported on the current device.
 
 ```javascript
 const speechToText = utterance.createSpeechToText();
@@ -134,11 +125,9 @@ if (speechToText.isSupported()) {
 }
 ```
 
----
+## Events
 
-## 🎵 Events System
-
-### Event Handling
+### Event handling
 
 ```javascript
 const speechToText = utterance.createSpeechToText();
@@ -176,7 +165,7 @@ speechToText.addEventListener('error', (event) => {
 });
 ```
 
-### Complete Event Management Example
+### Event management example
 
 ```javascript
 class SpeechRecognitionManager {
@@ -304,11 +293,9 @@ speechManager.listen("Speak your search query", {
 });
 ```
 
----
+## Language support
 
-## 🌍 Language Support
-
-### Language Model Selection
+### Language model selection
 
 ```javascript
 const speechToText = utterance.createSpeechToText();
@@ -328,7 +315,7 @@ speechToText.startSpeechToText({
 });
 ```
 
-### Multi-Language Speech Recognition
+### Multi-language speech recognition
 
 ```javascript
 class MultiLanguageSpeechRecognition extends SpeechRecognitionManager {
@@ -478,11 +465,9 @@ multiLangSpeech.listenInLanguage('es-ES', 'Di tu comando en español');
 multiLangSpeech.listenInLanguage('fr-FR', 'Dites votre commande en français');
 ```
 
----
+## Practical examples
 
-## 🎯 Practical Examples
-
-### Voice Command System
+### Voice command system
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -665,7 +650,7 @@ voiceCommands.start();
 voiceCommands.listCommands();
 ```
 
-### Real-time Speech Transcription
+### Real-time speech transcription
 
 ```javascript
 class SpeechTranscriber {
@@ -828,11 +813,9 @@ setTimeout(() => {
 }, 30000); // After 30 seconds
 ```
 
----
+## Advanced configuration
 
-## 🔧 Advanced Configuration
-
-### Network State Handling
+### Network state handling
 
 ```javascript
 class NetworkAwareSpeechRecognition {
@@ -926,7 +909,7 @@ const networkAwareSpeech = new NetworkAwareSpeechRecognition();
 networkAwareSpeech.startListening();
 ```
 
-### Permission Handling
+### Permission handling
 
 ```javascript
 class PermissionAwareSpeechRecognition {
@@ -1000,11 +983,9 @@ const permissionAwareSpeech = new PermissionAwareSpeechRecognition();
 permissionAwareSpeech.startListening();
 ```
 
----
+## Performance
 
-## 🚀 Performance Optimization
-
-### Efficient Recognition Management
+### Recognition management
 
 ```javascript
 class OptimizedSpeechRecognition {
@@ -1104,11 +1085,9 @@ optimizedSpeech.listen("Say urgent command", true); // Priority request
 console.log("Queue status:", optimizedSpeech.getQueueStatus());
 ```
 
----
+## Error handling and recovery
 
-## 🛡️ Error Handling & Recovery
-
-### Comprehensive Error Management
+### Error management
 
 ```javascript
 class RobustSpeechRecognition {
@@ -1298,11 +1277,9 @@ const robustSpeech = new RobustSpeechRecognition();
 robustSpeech.listen("Speak with robust error handling");
 ```
 
----
+## Platform compatibility
 
-## 📊 Platform Compatibility
-
-### Platform Requirements
+### Features by Android version
 
 | Feature                | Android 5.0+ | Android 6.0+ | Android 8.0+ | Android 10+ |
 | ---------------------- | ------------ | ------------ | ------------ | ----------- |
@@ -1311,7 +1288,7 @@ robustSpeech.listen("Speak with robust error handling");
 | Enhanced Recognition   | ❌            | ✅            | ✅            | ✅           |
 | Background Recognition | ❌            | ⚠️            | ⚠️            | ❌           |
 
-### Device Compatibility Check
+### Device compatibility check
 
 ```javascript
 class DeviceCompatibilityChecker {
@@ -1424,18 +1401,16 @@ if (compatibility.supported) {
 }
 ```
 
----
+## Best practices
 
-## 📄 Best Practices Summary
+### Do
 
-### ✅ Do's
-
-1. **Always Check Support**: Use `isSupport()` before attempting recognition
-2. **Handle Permissions**: Request microphone permissions properly on Android 6.0+
-3. **Implement Error Handling**: Provide graceful fallbacks for recognition errors
-4. **Check Network State**: Speech recognition requires internet connectivity
-5. **Use Appropriate Language Models**: Choose between `WEB_SEARCH` and `FREE_FORM`
-6. **Provide Clear Prompts**: Use descriptive prompt text to guide users
+1. Check support with `isSupport()` before starting recognition.
+2. Request microphone permission on Android 6.0+.
+3. Handle recognition errors with a fallback.
+4. Check the network state: speech recognition needs an internet connection.
+5. Pick the language model that fits the input: `WEB_SEARCH` or `FREE_FORM`.
+6. Write prompt text that tells users what to say.
 
 ```javascript
 // ✅ Good practice
@@ -1455,13 +1430,13 @@ if (speechToText.isSupport()) {
 }
 ```
 
-### ❌ Don'ts
+### Don't
 
-1. **Don't Ignore Platform Limitations**: Speech-to-Text is Android-only
-2. **Don't Skip Error Handling**: Always implement proper error recovery
-3. **Don't Assume Permissions**: Check and request permissions as needed
-4. **Don't Overload Recognition**: Allow cooldown periods between recognitions
-5. **Don't Ignore Network State**: Handle offline scenarios gracefully
+1. Don't forget that Speech-to-Text is Android-only.
+2. Don't skip error recovery.
+3. Don't assume permissions were granted; check and request them as needed.
+4. Don't start recognitions back to back; leave a cooldown between them.
+5. Don't ignore the offline case.
 
 ```javascript
 // ❌ Bad practice
@@ -1479,11 +1454,9 @@ if (Ti.Platform.osname === 'android' && speechToText.isSupport()) {
 }
 ```
 
----
+## Integration with Text-to-Speech
 
-## 🔗 Integration with Text-to-Speech
-
-### Complete Voice Interface
+### Complete voice interface
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -1572,9 +1545,7 @@ const voiceInterface = new CompleteVoiceInterface();
 voiceInterface.startConversation();
 ```
 
----
-
-## 📄 License
+## License
 
 Utterance is available under the Apache 2.0 license.
 
@@ -1591,7 +1562,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
----
-
-*🎤 Bringing modern voice recognition to Titanium Android developers*

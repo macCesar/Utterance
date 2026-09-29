@@ -1,49 +1,43 @@
-# Utterance v3.2 - Text to Speech 🗣️
-### Modern Cross-Platform Speech Synthesis for Titanium
+# Utterance v3.2: text to speech
 
-Utterance brings powerful Text-to-Speech capabilities to your Titanium projects using iOS's Speech Synthesizer and Android's TextToSpeech engine with complete cross-platform consistency.
+Utterance speaks text in Titanium apps with AVSpeechSynthesizer on iOS and TextToSpeech on Android, using the same API and rate values on both.
 
----
+## Requirements (v3.2)
+* Titanium SDK 12.7.0+ on iOS, 13.0.0+ on Android (the minimums in each module's `manifest`)
+* iOS 15.0+ (was 11.0+; current Xcode no longer builds for older targets)
+* Android 5.0+ (API level 21+)
 
-## 📋 Requirements v3.2
-* **Titanium SDK**: 12.7.0+ on iOS, 13.0.0+ on Android (the minimums in each module's `manifest`)
-* **iOS**: 15.0+ (was 11.0+; current Xcode no longer builds for older targets)
-* **Android**: API Level 21+ / Android 5.0+
+## What's new
 
-## ✨ What's New
+### v3.2
+- No TTS calls on Android's main thread. Speaking, stopping, canceling, preloading, changing engine and the initial voice setup run on a background thread. Android's `TextToSpeech` waits on an internal lock while it connects to the engine; on the main thread that wait was reported by Google Play as an ANR (`Input dispatching timed out`).
+- On Android, `isSpeaking` reads a flag instead of asking the engine. Only the last queued utterance moves the flag, so it answers immediately and an earlier utterance finishing cannot turn it off.
+- `requestVoices()` delivers the installed voices asynchronously in a `voices` event, with the same shape on both platforms. See [Installed voices](#installed-voices-requestvoices-v32).
+- New `startSpeaking()` options: `voiceId`, `bestVoice` and `queue`.
+- iOS fixes: `voice` accepts `es_MX` as well as `es-MX`, and out-of-range `rate`, `pitchMultiplier` and `volume` values are now rejected (the range check always passed before).
 
-### v3.2 Enhancements
-- 🧵 **No main-thread TTS calls on Android**: speaking, stopping, canceling, preloading, changing engine and the initial voice setup run on a background thread. Android's `TextToSpeech` waits on an internal lock while it connects to the engine; on the main thread that wait was reported by Google Play as an ANR (`Input dispatching timed out`).
-- ⚡ **`isSpeaking` without an engine round trip on Android**: it reads a flag that only the last queued utterance moves, so it answers immediately and an earlier utterance finishing cannot turn it off.
-- 🎙️ **`requestVoices()`**: installed voices, delivered asynchronously in a `voices` event with the same shape on both platforms. See [Installed Voices](#installed-voices-requestvoices-v32).
-- 🎯 **New `startSpeaking()` options**: `voiceId`, `bestVoice` and `queue`.
-- 🐛 **iOS fixes**: `voice` accepts `es_MX` as well as `es-MX`, and out-of-range `rate`, `pitchMultiplier` and `volume` values are now rejected (the range check always passed before).
+### v3.1
+- Speech starts right away: the legacy 100 ms warm-up delay on Android is gone.
+- Flag resets are centralized, which cuts redundant atomic operations by about 89 % per utterance.
+- Removed the unused `reset()` helper and the defensive readiness checks.
+- Rapid stop/cancel/start sequences no longer drop utterances.
 
-### v3.1 Enhancements
-- 🚀 **Immediate speech startup**: eliminated the legacy 100 ms warm-up delay on Android.
-- ⚙️ **Smarter flag handling**: centralized resets slash redundant atomic operations by ~89 % per utterance.
-- 🧹 **Lean API surface**: removed unused `reset()` helper and defensive readiness checks.
-- 🎮 **Rapid-sequence resilience**: rapid stop/cancel/start flows no longer drop utterances.
+### v3.0
+- The same rate value produces the same perceived speed on both platforms.
+- Detailed voice information with quality indicators.
+- Better language detection and availability checking.
+- Legacy workarounds removed, and faster initialization on Android.
+- All v2.x APIs keep working unchanged.
 
-### v3.0 Foundation
-- **🎯 Cross-Platform Rate Consistency**: Same rate values produce identical perceived speed
-- **🗣️ Modern Voice APIs**: Access to detailed voice information and quality indicators
-- **🌍 Enhanced Language Support**: Better language detection and availability checking
-- **⚡ Improved Performance**: Legacy workarounds removed for faster execution
-- **🔄 Backward Compatible**: All v2.x APIs continue to work unchanged
-- **🤖 Enhanced Performance**: Optimized initialization for Android devices
-
----
-
-## 🚀 Installation & Setup
+## Installation and setup
 
 ```javascript
 const utterance = require('bencoding.utterance');
 ```
 
-### Required Permissions
+### Permissions
 
-Add to your `tiapp.xml`:
+Text-to-speech needs no permissions. The entries below are for speech-to-text; add them to your `tiapp.xml` if you also use it:
 
 ```xml
 <ios>
@@ -71,27 +65,22 @@ Add to your `tiapp.xml`:
 </android>
 ```
 
----
+## Cross-platform rate normalization
 
-## 🎯 Major Update: Cross-Platform Rate Normalization
+Since v3.0 the same rate value gives the same perceived speed on iOS and Android, so you no longer pass a different value per platform.
 
-**Revolutionary in v3.0+**: Eliminates the long-standing cross-platform speech rate inconsistency! No more different rate values for iOS vs Android to achieve the same perceived speed.
+### Rate standardization
 
-### Speech Rate Standardization
+The default constants aim for the same perceived speed on both platforms rather than an exact mathematical mapping between the two engines. Constants based on that mapping are also available.
 
-We chose **perceptual equivalence over mathematical precision** for the ultimate user experience.
+#### Why perceived speed
 
-#### Why Perceptual Equivalence?
-
-1. **Consistent User Experience**: `SLOW_SPEECH_RATE` sounds equally slow on both platforms
-2. **Different TTS Engines**: 
-   - **iOS**: AVSpeechSynthesizer (optimized for Apple hardware)
-   - **Android**: android.speech.tts.TextToSpeech (optimized for Android devices)
-3. **Platform Optimization**: Each engine optimized their ranges differently
+1. `SLOW_SPEECH_RATE` sounds equally slow on both platforms.
+2. The engines are different (AVSpeechSynthesizer on iOS, android.speech.tts.TextToSpeech on Android), and each defines its rate range its own way.
 
 #### Available Rate Constants
 
-**🎵 Perceptual Equivalence Constants (RECOMMENDED)**
+Perceptual constants (recommended):
 ```javascript
 const speech = utterance.createSpeech();
 
@@ -103,7 +92,7 @@ speech.FAST_SPEECH_RATE       // iOS: 0.75, Android: 1.3  - Fast (efficient read
 speech.VERY_FAST_SPEECH_RATE  // iOS: 0.9,  Android: 1.6  - Very fast (quick consumption)
 ```
 
-**🔢 Mathematical Equivalence Constants (ADVANCED)**
+Mathematical constants (advanced):
 ```javascript
 // For applications requiring exact mathematical precision
 // Formula: android = 0.1 + (ios × 2.9) | ios = (android - 0.1) ÷ 2.9
@@ -113,9 +102,7 @@ speech.MATH_FAST_SPEECH_RATE       // iOS: 0.625, Android: 1.875
 speech.MATH_VERY_FAST_SPEECH_RATE  // iOS: 0.75,  Android: 2.275
 ```
 
----
-
-## ⚡ Quick Start with Normalized Rates
+## Quick start
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -134,11 +121,9 @@ speech.startSpeaking({
 });
 ```
 
----
+## The speech proxy
 
-## 🎙️ Working with the Speech Proxy
-
-### Creating a Speech Instance
+### Creating a speech instance
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -151,15 +136,13 @@ speech.startSpeaking({
 });
 ```
 
----
-
-## 📚 API Methods
+## API methods
 
 ### `startSpeaking(options)`
 
-Begin speech synthesis with enhanced v3.0 features.
+Starts speaking the given text.
 
-**Parameters:**
+Parameters:
 
 | Parameter            | Type   | Platform     | Description                                      |
 | -------------------- | ------ | ------------ | ------------------------------------------------ |
@@ -174,7 +157,7 @@ Begin speech synthesis with enhanced v3.0 features.
 | `bestVoice`          | Boolean| Optional     | When no `voiceId` applies, use the highest-quality installed voice for `voice`, same region first (v3.2). Default: `false` |
 | `queue`              | Boolean| Optional     | Speak after the current utterance instead of cutting it off (v3.2). `completed` fires once, when the queue ends. Default: `false` |
 
-### Basic Usage Examples
+### Basic usage
 
 ```javascript
 const speech = utterance.createSpeech();
@@ -194,7 +177,7 @@ if (speech.isSpeaking()) {
 }
 ```
 
-### Advanced Configuration Examples
+### Rates and platform options
 
 ```javascript
 // Cross-platform optimized rates (perceptual equivalence)
@@ -227,11 +210,9 @@ if (Ti.Platform.osname === 'iphone' || Ti.Platform.osname === 'ipad') {
 }
 ```
 
----
+## Voice selection (v3.0+)
 
-## 🗣️ Voice Selection (v3.0+)
-
-### Modern Voice APIs
+### Modern voice APIs
 
 ```javascript
 const speech = utterance.createSpeech();
@@ -263,7 +244,7 @@ try {
 }
 ```
 
-### Installed Voices: `requestVoices()` (v3.2)
+### Installed voices: `requestVoices()` (v3.2)
 
 `requestVoices()` returns immediately and delivers the list in a `voices` event. Use it to build a voice picker: on Android, `getModernVoices()` waits for the engine on the calling thread, and called from a tap while the engine is connecting it can freeze the app.
 
@@ -301,7 +282,7 @@ speech.addEventListener('voices', onVoices);
 speech.requestVoices();
 ```
 
-### Best Installed Voice: `bestVoice` (v3.2)
+### Best installed voice: `bestVoice` (v3.2)
 
 Without a `voiceId`, iOS speaks with the default voice for the language, and it keeps using the compact voice even when a better one is installed. `bestVoice: true` picks the installed voice with the highest quality for `voice`, preferring the same region (`es-MX` before `es-ES`). The result is cached per language for the life of the app.
 
@@ -309,7 +290,7 @@ Without a `voiceId`, iOS speaks with the default voice for the language, and it 
 speech.startSpeaking({ text: 'La Dama', voice: 'es_MX', bestVoice: true });
 ```
 
-### Queued Utterances: `queue` (v3.2)
+### Queued utterances: `queue` (v3.2)
 
 By default every `startSpeaking()` cuts off what is playing. With `queue: true` the text is spoken right after it, each part with its own voice and rate, and `completed` fires once, after the last one. Useful to say two sentences in two languages without a gap:
 
@@ -322,7 +303,7 @@ speech.addEventListener('completed', () => {
 });
 ```
 
-### Smart Voice Selection
+### Voice selection helper
 
 ```javascript
 class SmartVoiceSelector {
@@ -412,11 +393,9 @@ voiceSelector.speakWithBestVoice(
 );
 ```
 
----
+## Control methods
 
-## 🎛️ Control Methods
-
-### Speech Control
+### Speech control
 
 ```javascript
 const speech = utterance.createSpeech();
@@ -451,7 +430,7 @@ if (speech.isSupported()) {
 }
 ```
 
-### Android-Specific Features
+### Android-specific options
 
 ```javascript
 const speech = utterance.createSpeech();
@@ -466,11 +445,9 @@ if (Ti.Platform.osname === 'android') {
 }
 ```
 
----
+## Events
 
-## 🎵 Events System
-
-### Event Handling
+### Listening for events
 
 ```javascript
 const speech = utterance.createSpeech();
@@ -511,7 +488,7 @@ speech.addEventListener('error', (event) => {
 });
 ```
 
-### Complete Event Management Example
+### Event manager example
 
 ```javascript
 class SpeechManager {
@@ -589,11 +566,9 @@ const speechManager = new SpeechManager();
 speechManager.speak("This speech is managed with complete event handling!");
 ```
 
----
+## Multiple languages
 
-## 🌍 Multi-Language Support
-
-### Language Detection and Voice Selection
+### Language detection and voice selection
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -721,11 +696,9 @@ const spanishVoices = multiLangTTS.getVoicesForLanguage('es');
 console.log("Spanish voices:", spanishVoices.map(v => v.name));
 ```
 
----
+## Platform compatibility and migration
 
-## 🔧 Platform Compatibility & Migration
-
-### Platform-Specific Features
+### Platform-specific options
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -793,11 +766,9 @@ speakNewWay("This speech sounds consistently slow on both platforms", 'slow');
 speakNewWay("This speech sounds consistently fast on both platforms", 'fast');
 ```
 
----
+## Speech rate constants
 
-## 📊 Speech Rate Constants Reference
-
-### Cross-Platform Constants (Recommended)
+### Cross-platform constants (recommended)
 
 ```javascript
 const speech = utterance.createSpeech();
@@ -826,7 +797,7 @@ const legacyRates = {
 };
 ```
 
-### Rate Comparison Example
+### Comparing rates
 
 ```javascript
 const speech = utterance.createSpeech();
@@ -849,11 +820,9 @@ rateDemo.forEach((demo, index) => {
 });
 ```
 
----
+## Performance
 
-## 🚀 Performance Optimization
-
-### TTS Warm-up for Android
+### TTS warm-up on Android
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -887,7 +856,7 @@ const optimizedSpeech = new OptimizedSpeechManager();
 optimizedSpeech.speak("This speech is optimized for best performance!");
 ```
 
-### Voice Caching
+### Voice caching
 
 ```javascript
 class CachedVoiceManager {
@@ -963,9 +932,7 @@ cachedVoiceManager.speakWithCachedVoice("Fast cached voice selection!", 'en');
 cachedVoiceManager.speakWithCachedVoice("Selección rápida de voz en caché!", 'es');
 ```
 
----
-
-## 🛡️ Error Handling & Fallbacks
+## Error handling and fallbacks
 
 ```javascript
 const utterance = require('bencoding.utterance');
@@ -1098,18 +1065,16 @@ robustTTS.speakWithFallback("This speech has robust error handling and automatic
 robustTTS.quickSpeak("Quick and safe speech!");
 ```
 
----
+## Best practices
 
-## 📄 Best Practices Summary
+### Do
 
-### ✅ Do's
-
-1. **Use Cross-Platform Constants**: Always use `speech.SLOW_SPEECH_RATE` etc. for consistent behavior
-2. **Create the instance early**: The Android engine warms up on its own when `createSpeech()` connects; create one instance at startup and reuse it
-3. **Check Speaking State**: Use `speech.isSpeaking()` before starting new speech
-4. **Cache Voice Selection**: Store voice selection results for better performance
-5. **Handle Errors Gracefully**: Implement proper error handling and fallbacks
-6. **Use `requestVoices()` for voice pickers**: It answers with an event and never blocks the UI (v3.2)
+1. Use the cross-platform constants (`speech.SLOW_SPEECH_RATE` and the rest) so rates match on both platforms.
+2. Create the instance early. The Android engine warms up on its own when `createSpeech()` connects; create one instance at startup and reuse it.
+3. Check `speech.isSpeaking()` before starting new speech.
+4. Cache voice selection results instead of repeating the lookup.
+5. Handle errors and provide a fallback.
+6. Use `requestVoices()` for voice pickers. It answers with an event and never blocks the UI (v3.2).
 
 ```javascript
 // ✅ Good practice
@@ -1123,13 +1088,13 @@ if (!speech.isSpeaking()) {
 }
 ```
 
-### ❌ Don'ts
+### Don't
 
-1. **Don't Use Platform-Specific Rates**: Avoid manual `if (iOS)` rate calculations
-2. **Don't Create Multiple Instances**: Reuse speech instances for better performance
-3. **Don't Ignore Error Events**: Always handle TTS errors appropriately
-4. **Don't Block UI**: Use events instead of blocking operations
-5. **Don't call `getModernVoices()` from a tap on Android**: It waits for the engine on the calling thread; use `requestVoices()`
+1. Don't calculate rates per platform with manual `if (iOS)` checks.
+2. Don't create multiple instances; reuse one.
+3. Don't ignore error events.
+4. Don't block the UI; use events instead of blocking operations.
+5. Don't call `getModernVoices()` from a tap on Android. It waits for the engine on the calling thread; use `requestVoices()` instead.
 
 ```javascript
 // ❌ Bad practice
@@ -1143,9 +1108,7 @@ if (Ti.Platform.osname === 'iphone') {
 rate = speech.DEFAULT_SPEECH_RATE;
 ```
 
----
-
-## 📄 License
+## License
 
 Utterance is available under the Apache 2.0 license.
 
@@ -1162,7 +1125,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
----
-
-*🎙️ Bringing modern speech synthesis to Titanium developers worldwide*
