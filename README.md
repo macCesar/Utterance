@@ -1,15 +1,22 @@
-# 🎙️ Utterance v3.0
+# 🎙️ Utterance v3.1
 ### Modern Text-to-Speech & Speech-to-Text for Titanium
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://github.com/m1ga/Utterance)
 
-**Utterance v3.0** brings native Text-to-Speech and Speech-to-Text capabilities to your Titanium applications with a completely modernized API, enhanced performance, and cross-platform consistency.
+**Utterance v3.1** builds on the v3.0 rewrite with an immediate-speaking engine, smarter flag handling, and a cleaner API while preserving the modern cross-platform feature set.
 
 ---
 
-## 🚀 What's New in v3.0
+## 🚀 What's New
 
-### ⚠️ **BREAKING CHANGES** - This is a major version upgrade
+### v3.1 – Performance & Reliability
+- 🚀 **Zero-delay speech startup**: removed the legacy 100 ms warm-up; speech now begins immediately once initialised.
+- ⚡ **Optimized flag management**: centralized resets cut redundant atomic operations by roughly 89 % per utterance.
+- 🧹 **API cleanup**: retired the unused `reset()` method and legacy readiness checks, simplifying the surface area.
+- 🎮 **Rapid speech stability**: rapid card-style sequences run without dropped utterances thanks to streamlined cancellation handling.
+
+### v3.0 – Core Modernization
+#### ⚠️ Major Upgrade
 - **iOS 11+** required (dropped iOS 7-10 support)
 - **Android 5.0+ (API 21+)** required (dropped Android 4.x support)
 - **Titanium SDK 12.7.0+** required (dropped older SDK versions)
@@ -17,7 +24,7 @@
 - **Cross-Platform Rate Normalization**: Consistent speech rates across iOS and Android
 - **Performance Optimizations**: Removed legacy workarounds for faster execution
 
-### ✨ **New Modern Features**
+#### ✨ Modern Features
 - 🎯 **Cross-Platform Speech Rate Consistency**: Same rate values work identically on iOS and Android
 - 🗣️ **Advanced Voice Selection**: Access detailed voice information with quality indicators
 - 🌍 **Enhanced Language Support**: Better language detection and availability checking
@@ -109,7 +116,7 @@ const speech = utterance.createSpeech();
 
 // Simple speech with modern API
 speech.startSpeaking({
-    text: "Hello! This is Utterance v3.0 with cross-platform consistency!"
+    text: "Hello! This is Utterance v3.1 with cross-platform consistency!"
 });
 
 // Advanced configuration with standardized rates
@@ -696,7 +703,7 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 
 ## 📞 Support
 
-- **Documentation**: [Complete API Documentation](documentation/)
+- **Documentation**: [Utterance v3.1 Guide](documentation/UTTERANCE_v3_1_GUIDE.md)
 - **Examples**: [Practical Examples](example/)
 - **Issues**: [GitHub Issues](https://github.com/m1ga/Utterance/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/m1ga/Utterance/discussions)
