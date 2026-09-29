@@ -23,10 +23,14 @@ import org.appcelerator.kroll.common.Log;
 import org.appcelerator.titanium.TiApplication;
 import org.appcelerator.titanium.TiLifecycle;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,14 +69,19 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     @Kroll.constant
     public static final float MATH_VERY_FAST_SPEECH_RATE = 2.275f;
 
-    private String _text = "";
-    private String _voice = "";
-    private TextToSpeech _tts = null;
+    private volatile String _text = "";
+    private volatile String _voice = "";
+    private volatile TextToSpeech _tts = null;
     private final String _logName = UtteranceModule.MODULE_FULL_NAME;
     private final CountDownLatch _initLatch = new CountDownLatch(1);
     private final AtomicBoolean _initSuccess = new AtomicBoolean(false);
     private final Handler _mainHandler = new Handler(Looper.getMainLooper());
     private final AtomicBoolean _isSpeakingProperty = new AtomicBoolean(false);
+
+    // Every call into TextToSpeech that the caller does not need an answer from runs here.
+    // TextToSpeech waits on its connection lock while the engine connects; on the main thread
+    // that wait is an ANR.
+    private final ExecutorService _ttsExecutor = Executors.newSingleThreadExecutor();
 
     // OPTIMIZATION: Improved state flags for better control
     private final AtomicBoolean _isReady = new AtomicBoolean(false);
@@ -83,6 +92,10 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     // OPTIMIZATION: Utterance counter for unique tracking
     private volatile String _currentUtteranceId = null;
     private final AtomicInteger _utteranceCounter = new AtomicInteger(0);
+
+    // Last utterance queued by startSpeaking(); null after stop/cancel. Engine callbacks for any
+    // other id (a finished or stopped utterance, the warm-up) must not touch _isSpeakingProperty.
+    private volatile String _latestUtteranceId = null;
 
     // OPTIMIZATION: Cache for current configuration
     private volatile float _currentPitch = 1.0f;
@@ -116,6 +129,23 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
         }
     }
 
+    private void runOnTTSThread(final Runnable task) {
+        try {
+            _ttsExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        task.run();
+                    } catch (Exception e) {
+                        Log.e(_logName, "TTS task failed: " + e.getMessage(), e);
+                    }
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            Log.w(_logName, "TTS executor is shut down; task dropped");
+        }
+    }
+
     private boolean waitForInit(long timeoutMs) {
         try {
             return _initLatch.await(timeoutMs, TimeUnit.MILLISECONDS) && _initSuccess.get();
@@ -123,6 +153,10 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             Thread.currentThread().interrupt();
             return false;
         }
+    }
+
+    private boolean isLatestUtterance(String utteranceId) {
+        return utteranceId != null && utteranceId.equals(_latestUtteranceId);
     }
 
     private void resetControlFlags() {
@@ -178,7 +212,9 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             @Override
             public void onStart(String utteranceId) {
                 Log.d(_logName, "TTS Engine: utterance started - " + utteranceId);
-                _isSpeakingProperty.set(true);
+                if (isLatestUtterance(utteranceId)) {
+                    _isSpeakingProperty.set(true);
+                }
                 _currentUtteranceId = utteranceId;
 
                 fireEventAsync("started", true, "Speech started");
@@ -187,9 +223,13 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             @Override
             public void onDone(String utteranceId) {
                 Log.d(_logName, "TTS Engine: utterance completed - " + utteranceId);
-                _isSpeakingProperty.set(false);
+                if (isLatestUtterance(utteranceId)) {
+                    _isSpeakingProperty.set(false);
+                }
 
-                if (utteranceId != null && utteranceId.equals(_currentUtteranceId)) {
+                // Only the last utterance queued reports: with queue:true, "completed" means the
+                // whole queue is done.
+                if (isLatestUtterance(utteranceId)) {
                     if (_isCanceling.get()) {
                         fireEventAsync("canceled", true, "Speech canceled");
                         _isCanceling.set(false);
@@ -219,6 +259,10 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
 
             private void onErrorInternal(String utteranceId, int errorCode) {
                 Log.e(_logName, "TTS Engine: utterance error - " + utteranceId + " (code: " + errorCode + ")");
+                if (!isLatestUtterance(utteranceId)) {
+                    // An earlier part of a queue failed; the last part still reports when it ends.
+                    return;
+                }
                 _isSpeakingProperty.set(false);
 
                 resetControlFlags();
@@ -303,11 +347,20 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
                 // Configurar listener optimizado
                 _tts.setOnUtteranceProgressListener(createOptimizedUtteranceProgressListener());
 
-                // Configurar voz predeterminada
-                setupDefaultVoice();
+                runOnTTSThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            // Configurar voz predeterminada
+                            setupDefaultVoice();
 
-                // OPTIMIZACIÓN: Pre-calentar el motor TTS
-                warmUpTTS();
+                            // OPTIMIZACIÓN: Pre-calentar el motor TTS
+                            warmUpTTS();
+                        } catch (Exception error) {
+                            handleInitError(error);
+                        }
+                    }
+                });
 
                 _initLatch.countDown();
                 Log.i(_logName, "TTS initialized successfully");
@@ -380,10 +433,8 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             return false;
         }
 
-        // Actualizar estado y devolver
-        boolean speaking = _tts.isSpeaking();
-        _isSpeakingProperty.set(speaking);
-        return speaking;
+        // No Binder call: the UtteranceProgressListener and the start/stop methods keep this flag.
+        return _isSpeakingProperty.get();
     }
 
     @Kroll.method
@@ -431,25 +482,56 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             resetControlFlags();
         }
 
-        if (_tts.isSpeaking()) {
-            _tts.stop();
-            _isSpeakingProperty.set(false);
-        }
+        // Speaking from the moment it is queued, so a stopSpeaking() before onStart still stops it.
+        final String utteranceId = "utterance_" + _utteranceCounter.incrementAndGet();
+        _latestUtteranceId = utteranceId;
+        _isSpeakingProperty.set(true);
 
-        performSpeak(args);
+        runOnTTSThread(new Runnable() {
+            @Override
+            public void run() {
+                performSpeak(args, utteranceId);
+            }
+        });
     }
 
-    private void performSpeak(KrollDict args) {
+    private void performSpeak(KrollDict args, String utteranceId) {
+        if (_tts == null) {
+            if (isLatestUtterance(utteranceId)) {
+                _isSpeakingProperty.set(false);
+            }
+            return;
+        }
+
+        // queue:true adds this text after the one being spoken instead of cutting it off.
+        final boolean queue = args.optBoolean("queue", false);
+        if (!queue && _tts.isSpeaking()) {
+            _tts.stop();
+        }
+
         _text = args.getString("text");
 
-        // Configurar voz/idioma
-        if (args.containsKeyAndNotNull("voice") || args.containsKeyAndNotNull("language")) {
-            String requestedVoice = args.containsKeyAndNotNull("voice") ?
+        // Configurar voz/idioma. voiceId (a name from the "voices" event) wins; if that voice is no
+        // longer installed, fall back to voice/language so the utterance is still spoken.
+        String requestedVoice = null;
+        if (args.containsKeyAndNotNull("voiceId") && findVoice(args.getString("voiceId")) != null) {
+            requestedVoice = args.getString("voiceId");
+        } else if (args.containsKeyAndNotNull("voice") || args.containsKeyAndNotNull("language")) {
+            requestedVoice = args.containsKeyAndNotNull("voice") ?
                 args.getString("voice") : args.getString("language");
 
-            if (!requestedVoice.equals("auto") && !requestedVoice.equals(_voice)) {
-                setVoiceOptimized(requestedVoice);
+            // bestVoice: the highest-quality installed voice for that language instead of the
+            // engine's default one.
+            if (args.optBoolean("bestVoice", false)) {
+                String best = bestVoiceFor(requestedVoice);
+                if (best != null) {
+                    requestedVoice = best;
+                }
             }
+        }
+
+        if (requestedVoice != null && !requestedVoice.equals("auto") && !requestedVoice.equals(_voice)) {
+            setVoiceOptimized(requestedVoice);
         }
 
         if (args.containsKeyAndNotNull("rate")) {
@@ -470,15 +552,16 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             }
         }
 
-        String utteranceId = "utterance_" + _utteranceCounter.incrementAndGet();
-
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             Bundle params = new Bundle();
             params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId);
 
-            int result = _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, params, utteranceId);
+            int result = _tts.speak(_text, queue ? TextToSpeech.QUEUE_ADD : TextToSpeech.QUEUE_FLUSH, params, utteranceId);
 
             if (result == TextToSpeech.ERROR) {
+                if (isLatestUtterance(utteranceId)) {
+                    _isSpeakingProperty.set(false);
+                }
                 Log.e(_logName, "Failed to queue speech");
                 fireEventAsync("error", false, "Failed to queue speech");
             }
@@ -489,13 +572,114 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             params.put(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId);
 
             @SuppressWarnings("deprecation")
-            int result = _tts.speak(_text, TextToSpeech.QUEUE_FLUSH, params);
+            int result = _tts.speak(_text, queue ? TextToSpeech.QUEUE_ADD : TextToSpeech.QUEUE_FLUSH, params);
 
             if (result == TextToSpeech.ERROR) {
+                if (isLatestUtterance(utteranceId)) {
+                    _isSpeakingProperty.set(false);
+                }
                 Log.e(_logName, "Failed to queue speech");
                 fireEventAsync("error", false, "Failed to queue speech");
             }
         }
+    }
+
+    private final HashMap < String, String > _bestVoices = new HashMap < > ();
+
+    /**
+     * Name of the installed, offline voice with the highest quality for a language such as
+     * "es_MX": same country first, then any country of that language. Cached per language.
+     */
+    private String bestVoiceFor(String language) {
+        if (android.os.Build.VERSION.SDK_INT < 21 || _tts == null || language == null) {
+            return null;
+        }
+        if (_bestVoices.containsKey(language)) {
+            return _bestVoices.get(language);
+        }
+
+        Locale wanted = toLocale(language);
+        java.util.Set < android.speech.tts.Voice > voices = _tts.getVoices();
+        android.speech.tts.Voice best = null;
+        int bestScore = -1;
+
+        if (voices != null) {
+            for (android.speech.tts.Voice voice: voices) {
+                if (voice.isNetworkConnectionRequired()
+                    || voice.getFeatures().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
+                    || !voice.getLocale().getLanguage().equals(wanted.getLanguage())) {
+                    continue;
+                }
+                boolean sameCountry = voice.getLocale().getCountry().equalsIgnoreCase(wanted.getCountry());
+                int score = (sameCountry ? 1000 : 0) + voice.getQuality();
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = voice;
+                }
+            }
+        }
+
+        String name = best != null ? best.getName() : null;
+        _bestVoices.put(language, name);
+        return name;
+    }
+
+    private android.speech.tts.Voice findVoice(String name) {
+        if (android.os.Build.VERSION.SDK_INT < 21 || _tts == null || name == null) {
+            return null;
+        }
+        java.util.Set < android.speech.tts.Voice > voices = _tts.getVoices();
+        if (voices == null) {
+            return null;
+        }
+        for (android.speech.tts.Voice voice: voices) {
+            if (voice.getName().equals(name)) {
+                return voice;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Installed, offline voices, delivered in a "voices" event. Runs on the TTS thread because
+     * getVoices() waits for the engine connection like every other TextToSpeech call.
+     */
+    @Kroll.method
+    public void requestVoices() {
+        runOnTTSThread(new Runnable() {
+            @Override
+            public void run() {
+                final List < KrollDict > list = new ArrayList < > ();
+
+                if (android.os.Build.VERSION.SDK_INT >= 21 && waitForInit(INIT_TIMEOUT_MS) && _tts != null) {
+                    java.util.Set < android.speech.tts.Voice > voices = _tts.getVoices();
+                    if (voices != null) {
+                        for (android.speech.tts.Voice voice: voices) {
+                            if (voice.isNetworkConnectionRequired()
+                                || voice.getFeatures().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)) {
+                                continue;
+                            }
+                            KrollDict info = new KrollDict();
+                            info.put("id", voice.getName());
+                            info.put("name", "");
+                            info.put("language", voice.getLocale().toLanguageTag());
+                            info.put("quality", voice.getQuality() >= android.speech.tts.Voice.QUALITY_VERY_HIGH ? "premium" :
+                                voice.getQuality() >= android.speech.tts.Voice.QUALITY_HIGH ? "enhanced" : "default");
+                            list.add(info);
+                        }
+                    }
+                }
+
+                _mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        KrollDict event = new KrollDict();
+                        event.put("voices", list.toArray());
+                        fireEvent("voices", event);
+                    }
+                });
+            }
+        });
     }
 
     private void setVoiceOptimized(String requestedVoice) {
@@ -552,19 +736,28 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             return;
         }
 
-        if (_tts.isSpeaking()) {
-            _isStopping.set(true);
-            _tts.stop();
-            _isSpeakingProperty.set(false);
-            _currentUtteranceId = null;
+        _latestUtteranceId = null;
+        final boolean wasSpeaking = _isSpeakingProperty.getAndSet(false);
 
-            fireEventAsync("stopped", true, "Speech stopped");
+        runOnTTSThread(new Runnable() {
+            @Override
+            public void run() {
+                if (_tts == null) {
+                    fireEventAsync("stopped", true, "Already stopped");
+                    return;
+                }
 
-            _isStopping.set(false);
-        } else {
-            _isSpeakingProperty.set(false);
-            fireEventAsync("stopped", true, "Already stopped");
-        }
+                // The flag was cleared on the caller's thread; a startSpeaking() queued after this
+                // stop has already set it again, so it is not touched here.
+                _isStopping.set(true);
+                _tts.stop();
+                _currentUtteranceId = null;
+
+                fireEventAsync("stopped", true, wasSpeaking ? "Speech stopped" : "Already stopped");
+
+                _isStopping.set(false);
+            }
+        });
     }
 
     @Kroll.method
@@ -574,19 +767,27 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
             return;
         }
 
-        if (_tts.isSpeaking()) {
-            _isCanceling.set(true);
-            _tts.stop();
-            _isSpeakingProperty.set(false);
-            _currentUtteranceId = null;
+        _latestUtteranceId = null;
+        final boolean wasSpeaking = _isSpeakingProperty.getAndSet(false);
 
-            fireEventAsync("canceled", true, "Speech canceled");
+        runOnTTSThread(new Runnable() {
+            @Override
+            public void run() {
+                if (_tts == null) {
+                    fireEventAsync("canceled", true, "Already canceled");
+                    return;
+                }
 
-            _isCanceling.set(false);
-        } else {
-            _isSpeakingProperty.set(false);
-            fireEventAsync("canceled", true, "Already canceled");
-        }
+                // Same as stopSpeaking(): the flag belongs to whatever was queued after this.
+                _isCanceling.set(true);
+                _tts.stop();
+                _currentUtteranceId = null;
+
+                fireEventAsync("canceled", true, wasSpeaking ? "Speech canceled" : "Already canceled");
+
+                _isCanceling.set(false);
+            }
+        });
     }
 
     // ========================================
@@ -596,21 +797,28 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     @Override
     public void onDestroy(Activity activity) {
         if (_tts != null) {
-            if (_tts.isSpeaking()) {
-                _tts.stop();
-            }
-            _tts.shutdown();
-            _tts = null;
-            _isReady.set(false);
-            _isSpeakingProperty.set(false);
-            Log.d(_logName, "TTS resources released");
+            runOnTTSThread(new Runnable() {
+                @Override
+                public void run() {
+                    shutdownTTS();
+                    Log.d(_logName, "TTS resources released");
+                }
+            });
         }
+        _ttsExecutor.shutdown();
     }
 
     @Override
     public void onPause(Activity activity) {
-        if (_tts != null && _tts.isSpeaking()) {
-            _tts.stop();
+        if (_tts != null && _isSpeakingProperty.getAndSet(false)) {
+            runOnTTSThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (_tts != null) {
+                        _tts.stop();
+                    }
+                }
+            });
             fireEventAsync("paused", true, "Speech paused due to app pause");
         }
     }
@@ -629,8 +837,15 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
 
     @Override
     public void onStop(Activity activity) {
-        if (_tts != null && _tts.isSpeaking()) {
-            _tts.stop();
+        if (_tts != null && _isSpeakingProperty.getAndSet(false)) {
+            runOnTTSThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (_tts != null) {
+                        _tts.stop();
+                    }
+                }
+            });
         }
     }
 
@@ -817,22 +1032,26 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
     }
 
     @Kroll.method
-    public void setEngine(String enginePackage) {
-        if (_tts != null) {
-            shutdownTTS();
-        }
-
-        _mainHandler.post(new Runnable() {
+    public void setEngine(final String enginePackage) {
+        // Shut down on the TTS thread, then create on the main thread, in that order.
+        runOnTTSThread(new Runnable() {
             @Override
             public void run() {
-                try {
-                    _isInitializing.set(true);
-                    _tts = new TextToSpeech(TiApplication.getInstance().getApplicationContext(),
-                        SpeechProxy.this, enginePackage);
-                } catch (Exception e) {
-                    Log.e(_logName, "Failed to set engine: " + e.getMessage());
-                    fireEventAsync("error", false, "Failed to set engine: " + enginePackage);
-                }
+                shutdownTTS();
+
+                _mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            _isInitializing.set(true);
+                            _tts = new TextToSpeech(TiApplication.getInstance().getApplicationContext(),
+                                SpeechProxy.this, enginePackage);
+                        } catch (Exception e) {
+                            Log.e(_logName, "Failed to set engine: " + e.getMessage());
+                            fireEventAsync("error", false, "Failed to set engine: " + enginePackage);
+                        }
+                    }
+                });
             }
         });
     }
@@ -851,24 +1070,33 @@ public class SpeechProxy extends KrollProxy implements TiLifecycle.OnLifecycleEv
                 _isReady.set(false);
                 _isSpeakingProperty.set(false);
                 _currentUtteranceId = null;
+                _bestVoices.clear();
             }
         }
     }
 
     @Kroll.method
-    public void preloadVoiceData(String language) {
+    public void preloadVoiceData(final String language) {
         if (_tts == null || !_isReady.get()) {
             Log.w(_logName, "TTS not ready for preload");
             return;
         }
 
         if (android.os.Build.VERSION.SDK_INT >= 21) {
-            Locale locale = toLocale(language);
-            Bundle params = new Bundle();
-            params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0.0f);
-            _tts.setLanguage(locale);
-            _tts.speak(" ", TextToSpeech.QUEUE_ADD, params, "preload_" + language);
-            Log.d(_logName, "Preloading voice data for: " + language);
+            runOnTTSThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (_tts == null) {
+                        return;
+                    }
+                    Locale locale = toLocale(language);
+                    Bundle params = new Bundle();
+                    params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0.0f);
+                    _tts.setLanguage(locale);
+                    _tts.speak(" ", TextToSpeech.QUEUE_ADD, params, "preload_" + language);
+                    Log.d(_logName, "Preloading voice data for: " + language);
+                }
+            });
         }
     }
 
