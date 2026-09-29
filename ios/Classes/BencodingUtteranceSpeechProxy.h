@@ -14,6 +14,7 @@
 
 @private
   BOOL _isSpeaking;
+  NSInteger _pending; // utterances queued and not finished yet
   BOOL _isSupported;
   NSString *_text;
   NSString *_voice;

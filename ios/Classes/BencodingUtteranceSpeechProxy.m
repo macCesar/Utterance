@@ -103,7 +103,9 @@ int const cSpeechBoundaryWord = 1;
         return;
     }
     
-    if(_isSpeaking){
+    // queue:true adds this text after the one being spoken; AVSpeechSynthesizer queues it.
+    BOOL queue = [TiUtils boolValue:@"queue" properties:args def:NO];
+    if(_isSpeaking && !queue){
         NSLog(@"[DEBUG] Already speaking");
         return;
     }
@@ -130,11 +132,22 @@ int const cSpeechBoundaryWord = 1;
         _voice = [self voiceLanguageForText:_text];
     }
     
-    utterance.voice = [AVSpeechSynthesisVoice voiceWithLanguage:_voice];
+    // AVSpeechSynthesisVoice expects BCP-47 codes ("es-MX"); accept the Android-style "es_MX" too.
+    _voice = [_voice stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
+
+    // voiceId (an identifier from the "voices" event) wins. voiceWithIdentifier: returns nil when the
+    // user deleted that voice, and then the language's default voice speaks instead.
+    NSString *voiceId = [TiUtils stringValue:@"voiceId" properties:args def:nil];
+    AVSpeechSynthesisVoice *chosen = voiceId.length > 0 ? [AVSpeechSynthesisVoice voiceWithIdentifier:voiceId] : nil;
+    // bestVoice: the highest-quality installed voice for that language instead of Apple's default one.
+    if (chosen == nil && [TiUtils boolValue:@"bestVoice" properties:args def:NO]) {
+        chosen = [self bestVoiceFor:_voice];
+    }
+    utterance.voice = chosen != nil ? chosen : [AVSpeechSynthesisVoice voiceWithLanguage:_voice];
     
     if([args valueForKey:@"rate"] != nil){
         float rate = [TiUtils floatValue:@"rate" properties:args def:AVSpeechUtteranceDefaultSpeechRate];
-        if((rate >=AVSpeechUtteranceMinimumSpeechRate)||(rate<=AVSpeechUtteranceMaximumSpeechRate)){
+        if((rate >=AVSpeechUtteranceMinimumSpeechRate)&&(rate<=AVSpeechUtteranceMaximumSpeechRate)){
             utterance.rate = rate;
         }else{
             NSLog(@"[ERROR] provided rate %f must be between %f and %f", rate,AVSpeechUtteranceMinimumSpeechRate,AVSpeechUtteranceMaximumSpeechRate);
@@ -143,7 +156,7 @@ int const cSpeechBoundaryWord = 1;
     
     if([args valueForKey:@"pitchMultiplier"] != nil){
         float pitchMultiplier = [TiUtils floatValue:@"pitchMultiplier" properties:args def:1];
-        if((pitchMultiplier >=0.5f)||(pitchMultiplier<=2.0f)){
+        if((pitchMultiplier >=0.5f)&&(pitchMultiplier<=2.0f)){
             utterance.pitchMultiplier = pitchMultiplier;
         }else{
             NSLog(@"[ERROR] provided pitchMultiplier %f must be between 0.5 and 2", pitchMultiplier);
@@ -152,7 +165,7 @@ int const cSpeechBoundaryWord = 1;
     
     if([args valueForKey:@"volume"] != nil){
         float volume = [TiUtils floatValue:@"volume" properties:args def:1];
-        if((volume >=0.0f)||(volume<=1.0f)){
+        if((volume >=0.0f)&&(volume<=1.0f)){
             utterance.volume = volume;
         }else{
             NSLog(@"[ERROR] provided volume %f must be between 0 and 1", volume);
@@ -171,6 +184,7 @@ int const cSpeechBoundaryWord = 1;
     
     [self.speechSynthesizer speakUtterance:utterance];
 
+    _pending++;
     _isSpeaking = YES;
 }
 
@@ -215,6 +229,7 @@ int const cSpeechBoundaryWord = 1;
             [self.speechSynthesizer stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
         }
     }
+    _pending = 0;
     [self doCallListener:@"stopped"];
     _isSpeaking = NO;
 }
@@ -244,6 +259,7 @@ int const cSpeechBoundaryWord = 1;
     }
 }
 - (void)speechSynthesizer:(AVSpeechSynthesizer *)synthesizer didCancelSpeechUtterance:(AVSpeechUtterance *)utterance{
+    if (_pending > 0) { _pending--; }
     _isSpeaking = NO;
     [self doCallListener:@"canceled"];
 }
@@ -254,6 +270,9 @@ int const cSpeechBoundaryWord = 1;
 }
 
 - (void)speechSynthesizer:(AVSpeechSynthesizer *)synthesizer didFinishSpeechUtterance:(AVSpeechUtterance *)utterance{
+    if (_pending > 0) { _pending--; }
+    // With queue:true, "completed" means the whole queue is done, as on Android.
+    if (_pending > 0) { return; }
     _isSpeaking = NO;
     [self doCallListener:@"completed"];
 }
@@ -339,6 +358,82 @@ MAKE_SYSTEM_PROP(SPEECH_BOUNDARY_WORD,cSpeechBoundaryWord);
 -(NSNumber*)MATH_VERY_FAST_SPEECH_RATE
 {
     return [NSNumber numberWithFloat:0.75f];  // Exact math equivalent to Android 2.275f
+}
+
+/**
+ * Highest-quality installed voice for a BCP-47 language such as "es-MX": same region first, then
+ * any region of that language. Novelty voices are skipped.
+ */
+- (AVSpeechSynthesisVoice *)bestVoiceFor:(NSString *)language
+{
+    // speechVoices is not free; the answer for a language does not change while the app runs.
+    static NSMutableDictionary<NSString *, NSString *> *cache = nil;
+    if (cache == nil) {
+        cache = [NSMutableDictionary dictionary];
+    }
+    NSString *cached = cache[language];
+    if (cached != nil) {
+        return cached.length > 0 ? [AVSpeechSynthesisVoice voiceWithIdentifier:cached] : nil;
+    }
+
+    NSString *base = [[language componentsSeparatedByString:@"-"] firstObject];
+    AVSpeechSynthesisVoice *best = nil;
+    NSInteger bestScore = -1;
+
+    for (AVSpeechSynthesisVoice *voice in [AVSpeechSynthesisVoice speechVoices]) {
+        if (@available(iOS 17.0, *)) {
+            if (voice.voiceTraits & AVSpeechSynthesisVoiceTraitIsNoveltyVoice) {
+                continue;
+            }
+        }
+        NSString *voiceBase = [[voice.language componentsSeparatedByString:@"-"] firstObject];
+        if (![voiceBase isEqualToString:base]) {
+            continue;
+        }
+        NSInteger score = ([voice.language isEqualToString:language] ? 1000 : 0) + voice.quality;
+        if (score > bestScore) {
+            bestScore = score;
+            best = voice;
+        }
+    }
+
+    cache[language] = best != nil ? best.identifier : @"";
+    return best;
+}
+
+/**
+ * Installed voices, delivered in a "voices" event with the same shape as on Android:
+ * { id, name, language, quality: "default" | "enhanced" | "premium" }. Novelty voices are left out.
+ */
+-(void)requestVoices:(id)unused
+{
+    NSMutableArray *list = [NSMutableArray array];
+
+    for (AVSpeechSynthesisVoice *voice in [AVSpeechSynthesisVoice speechVoices]) {
+        if (@available(iOS 17.0, *)) {
+            if (voice.voiceTraits & AVSpeechSynthesisVoiceTraitIsNoveltyVoice) {
+                continue;
+            }
+        }
+
+        NSString *quality = @"default";
+        if (voice.quality == AVSpeechSynthesisVoiceQualityEnhanced) {
+            quality = @"enhanced";
+        } else if (@available(iOS 16.0, *)) {
+            if (voice.quality == AVSpeechSynthesisVoiceQualityPremium) {
+                quality = @"premium";
+            }
+        }
+
+        [list addObject:@{
+            @"id": voice.identifier,
+            @"name": voice.name ? voice.name : @"",
+            @"language": voice.language ? voice.language : @"",
+            @"quality": quality
+        }];
+    }
+
+    [self fireEvent:@"voices" withObject:@{ @"voices": list }];
 }
 
 /**
