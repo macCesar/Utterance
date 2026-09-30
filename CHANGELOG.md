@@ -10,7 +10,7 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 - iOS: speech-to-text is supported and documented. `startSpeechToText()` listens live from the microphone through `SFSpeechRecognizer`, and `stopRecording()` ends the audio.
 - Android: `stopRecording()`, a `language` option (for example `es-MX`), and `text` and `confidence` fields in `completed`. `started` fires when the microphone is open.
 - iOS: a session now ends by itself after a pause, as on Android. Before, it listened until `stopRecording()` was called.
-- Both platforms: new `silenceTimeout` (seconds of silence after speech) and `noSpeechTimeout` (seconds to wait for speech) options; 0 turns either one off. iOS defaults to 2 and 6 seconds. On Android the recognizer decides unless the options are set; then the module passes the silence length to the recognizer as a hint and also ends the session itself, so a shorter value always applies.
+- Both platforms: new `silenceTimeout` (seconds of silence after speech) and `noSpeechTimeout` (seconds to wait for speech) options; 0 turns either one off. iOS defaults to 2 and 6 seconds. On Android, without the options the recognizer decides. With them, the module passes the silence length to the recognizer as a hint and also ends the session itself, so a shorter value always applies.
 - Both platforms: `completed` delivers `{ success, text, confidence, words, wordCount, detectedInput }`, or `{ success: false, message, detectedInput: false, wordCount: 0, words: [] }` on failure. `words` lists the alternative transcriptions, best first, and `wordCount` counts them.
 - `CHANGELOG.md`, which replaces the "What's new" section of the README.
 
@@ -23,7 +23,7 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 - Example apps: `android/example/app.js` and `ios/example/app.js` (identical) were rewritten as a demo with a Speak tab and a Listen tab. The Speak tab lists only the languages that have an installed voice.
 
 ### Fixed
-- iOS: `stopRecording()` canceled the recognition task, so `completed` arrived with an empty `text`, followed by a second `completed` with `Recognition request was canceled`. The transcript was lost. It now ends the audio and waits for the final result.
+- iOS: `stopRecording()` canceled the recognition task, so `completed` arrived with an empty `text`, followed by a second `completed` with `Recognition request was canceled`, so the transcript was lost. It now ends the audio and waits for the final result.
 - iOS: after a listening session, text-to-speech stayed silent. The module switched the app's audio session to the Record category, which does not play sound, and never switched it back. It now restores the previous category when the session ends.
 - iOS: `stopRecording()` left the microphone tap installed, so a second `startSpeechToText()` raised `nullptr == Tap()` and the app showed an error screen.
 - iOS: without an audio input (a Simulator without a microphone, or a microphone another app holds) `startSpeechToText()` raised an exception. `completed` now reports `success: false` and `message: "No audio input available"`.
@@ -31,7 +31,7 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 
 ### Testing
 - iOS: one iPad (9th generation), speaking Spanish (`es-MX`). The automatic end after a pause and text-to-speech playing after a listening session were verified there; the 6 second no-speech timeout and a custom `silenceTimeout` were not. Not tested: other devices or languages, on-device recognition, and accuracy against other engines. The module does not set `requiresOnDeviceRecognition` or `addsPunctuation`, so the text has no punctuation and the audio may go to Apple's servers.
-- Android: the `silenceTimeout` and `noSpeechTimeout` options were not tested yet. One OPPO CPH2639 (Android 16) with the Google recognizer, speaking Spanish (`es-MX`) and English (`en-US`). Verified: no system dialog, the runtime permission flow, `started` and `completed` with `text` and `words`, silence reported as `No speech detected`, and `stopRecording()` ending a session early. The `confidence` value was constant (0.948) for Spanish results. Not tested: other devices, recognizers, or offline packs.
+- Android: one OPPO CPH2639 (Android 16) with the Google recognizer, speaking Spanish (`es-MX`) and English (`en-US`). Verified: no system dialog, the runtime permission flow, `started` and `completed` with `text` and `words`, silence reported as `No speech detected`, and `stopRecording()` ending a session early. The `confidence` value was constant (0.948) for Spanish results. Not tested: the `silenceTimeout` and `noSpeechTimeout` options, other devices, recognizers, or offline packs.
 - Example apps: checked on the iPad and the OPPO, and on an iOS 27 Simulator for the layout only (with simulated events). The list of installed languages was not checked on screen.
 
 ## [3.3.0] - 2026-09-29
