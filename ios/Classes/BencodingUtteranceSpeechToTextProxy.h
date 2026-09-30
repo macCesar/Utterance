@@ -17,12 +17,19 @@
   BOOL _isRecording;
   BOOL _permissionsGranted;
   NSString *_locale;
+  double _silenceTimeout;
+  double _noSpeechTimeout;
+  BOOL _audioSessionChanged;
+  NSString *_previousCategory;
+  NSString *_previousMode;
+  AVAudioSessionCategoryOptions _previousOptions;
 }
 
 @property(nonatomic, strong) SFSpeechRecognizer *speechRecognizer;
 @property(nonatomic, strong) SFSpeechAudioBufferRecognitionRequest *recognitionRequest;
 @property(nonatomic, strong) SFSpeechRecognitionTask *recognitionTask;
 @property(nonatomic, strong) AVAudioEngine *audioEngine;
+@property(nonatomic, strong) NSTimer *endOfSpeechTimer;
 
 // Public API Methods (matching Android API for consistency)
 - (NSNumber *)isSupported:(id)unused;

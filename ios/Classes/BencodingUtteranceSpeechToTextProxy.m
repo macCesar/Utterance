@@ -14,12 +14,35 @@
 
 #pragma mark Internal
 
+// The system language when SFSpeechRecognizer supports it (same region first), otherwise en-US
+- (NSString *)systemLocale
+{
+    NSString *preferred = [[NSLocale preferredLanguages].firstObject stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
+    if (!preferred) {
+        return @"en-US";
+    }
+    NSString *language = [[NSLocale localeWithLocaleIdentifier:preferred] objectForKey:NSLocaleLanguageCode];
+    NSString *sameLanguage = nil;
+    for (NSLocale *supported in [SFSpeechRecognizer supportedLocales]) {
+        NSString *identifier = [supported.localeIdentifier stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
+        if ([identifier caseInsensitiveCompare:preferred] == NSOrderedSame) {
+            return identifier;
+        }
+        if (!sameLanguage && [[supported objectForKey:NSLocaleLanguageCode] isEqualToString:language]) {
+            sameLanguage = identifier;
+        }
+    }
+    return sameLanguage ?: @"en-US";
+}
+
 - (void)_configure
 {
     _isSupported = NO;
     _isRecording = NO;
     _permissionsGranted = NO;
-    _locale = @"en-US"; // Default locale
+    _silenceTimeout = 2.0;
+    _noSpeechTimeout = 6.0;
+    _locale = [self systemLocale];
     
     // Check if Speech Recognition is available (iOS 10+)
     if (@available(iOS 10.0, *)) {
@@ -79,6 +102,8 @@
     NSInteger maxResults = [TiUtils intValue:@"maxResults" properties:options def:10];
     NSString *languageModel = [TiUtils stringValue:@"languageModel" properties:options def:@"free_form"];
     NSString *language = [TiUtils stringValue:@"language" properties:options def:_locale];
+    _silenceTimeout = [TiUtils doubleValue:@"silenceTimeout" properties:options def:2.0];
+    _noSpeechTimeout = [TiUtils doubleValue:@"noSpeechTimeout" properties:options def:6.0];
     
     // Update locale if specified
     if (![language isEqualToString:_locale]) {
@@ -101,23 +126,52 @@
 
 - (void)stopRecording:(id)unused
 {
+    [self armEndOfSpeechTimer:0];
+    
     if (!_isRecording) {
         return;
     }
     
     [self.audioEngine stop];
+    [self.audioEngine.inputNode removeTapOnBus:0];
     [self.recognitionRequest endAudio];
     
-    if (self.recognitionTask) {
-        [self.recognitionTask cancel];
-        self.recognitionTask = nil;
-    }
-    
+    // The task is not canceled: iOS delivers the final result after endAudio, and cancel() would drop it
     _isRecording = NO;
     NSLog(@"[DEBUG] Speech recognition stopped");
 }
 
 #pragma mark Private Methods
+
+// iOS keeps listening until it is told the audio ended, so the module ends the session itself after a pause.
+// A value of 0 or less cancels the timer.
+- (void)armEndOfSpeechTimer:(NSTimeInterval)seconds
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.endOfSpeechTimer invalidate];
+        self.endOfSpeechTimer = nil;
+        if (seconds <= 0 || !self->_isRecording) {
+            return;
+        }
+        self.endOfSpeechTimer = [NSTimer scheduledTimerWithTimeInterval:seconds target:self selector:@selector(endOfSpeechTimerFired:) userInfo:nil repeats:NO];
+    });
+}
+
+- (void)restoreAudioSession
+{
+    if (!_audioSessionChanged) {
+        return;
+    }
+    _audioSessionChanged = NO;
+    AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+    [audioSession setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
+    [audioSession setCategory:_previousCategory mode:_previousMode options:_previousOptions error:nil];
+}
+
+- (void)endOfSpeechTimerFired:(NSTimer *)timer
+{
+    [self stopRecording:nil];
+}
 
 - (void)requestPermissions:(void (^)(BOOL granted))completion
 {
@@ -173,11 +227,26 @@
     // Configure audio session
     NSError *error = nil;
     AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+    // Listening needs the Record category, which mutes playback (text-to-speech), so the previous one comes back when it ends
+    if (!_audioSessionChanged) {
+        _previousCategory = audioSession.category;
+        _previousMode = audioSession.mode;
+        _previousOptions = audioSession.categoryOptions;
+        _audioSessionChanged = YES;
+    }
     [audioSession setCategory:AVAudioSessionCategoryRecord mode:AVAudioSessionModeMeasurement options:AVAudioSessionCategoryOptionDuckOthers error:&error];
     [audioSession setActive:YES withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error];
     
     if (error) {
         [self fireErrorEvent:[NSString stringWithFormat:@"Audio session error: %@", error.localizedDescription]];
+        return;
+    }
+    
+    // installTapOnBus throws when there is no audio input (a Simulator without one, or a mic held by another app)
+    AVAudioFormat *inputFormat = [self.audioEngine.inputNode outputFormatForBus:0];
+    if (!audioSession.isInputAvailable || inputFormat.sampleRate <= 0 || inputFormat.channelCount == 0) {
+        [audioSession setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
+        [self fireErrorEvent:@"No audio input available"];
         return;
     }
     
@@ -206,14 +275,19 @@
         if (error) {
             [strongSelf fireErrorEvent:[NSString stringWithFormat:@"Recognition error: %@", error.localizedDescription]];
             [strongSelf stopRecording:nil];
+            strongSelf.recognitionTask = nil;
             return;
         }
         
         if (result) {
+            if (!result.isFinal && result.bestTranscription.formattedString.length > 0) {
+                [strongSelf armEndOfSpeechTimer:strongSelf->_silenceTimeout];
+            }
             if (result.isFinal) {
                 // Final result - fire completed event
                 [strongSelf fireCompletedEvent:result];
                 [strongSelf stopRecording:nil];
+                strongSelf.recognitionTask = nil;
             }
             // For partial results, we could fire intermediate events here if needed
         }
@@ -235,11 +309,12 @@
     }
     
     _isRecording = YES;
+    [self armEndOfSpeechTimer:_noSpeechTimeout];
     
     // Fire started event
     [self fireStartedEvent];
     
-    NSLog(@"[DEBUG] Speech recognition started");
+    NSLog(@"[DEBUG] Speech recognition started (%@)", _locale);
 }
 
 #pragma mark Event Methods
@@ -256,6 +331,7 @@
 
 - (void)fireCompletedEvent:(SFSpeechRecognitionResult *)result
 {
+    [self restoreAudioSession];
     if ([self _hasListeners:@"completed"]) {
         NSMutableArray *words = [NSMutableArray array];
         
@@ -294,6 +370,7 @@
 
 - (void)fireErrorEvent:(NSString *)errorMessage
 {
+    [self restoreAudioSession];
     if ([self _hasListeners:@"completed"]) {
         NSDictionary *event = @{
             @"success": @NO,
