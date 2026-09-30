@@ -1,6 +1,6 @@
 /**
  * Utterance v3.0 - Comprehensive Speech-to-Text Example
- * Advanced demonstration of STT features (Android only)
+ * Advanced demonstration of STT features (iOS and Android)
  * 
  * Features:
  * - Voice command processing
@@ -19,12 +19,6 @@ class ComprehensiveSTTDemo {
   constructor() {
     console.log('🎤 Comprehensive STT Demo - Utterance v3.0');
     console.log(`📱 Platform: ${Ti.Platform.osname} ${Ti.Platform.version} `);
-
-    if (Ti.Platform.osname !== 'android') {
-      console.log('ℹ️ Speech-to-Text is only available on Android');
-      this.showPlatformLimitation();
-      return;
-    }
 
     this.speechToText = utterance.createSpeechToText();
     this.isListening = false;
@@ -59,7 +53,6 @@ class ComprehensiveSTTDemo {
     // STT event listeners
     this.speechToText.addEventListener('started', this.onSTTStarted.bind(this));
     this.speechToText.addEventListener('completed', this.onSTTCompleted.bind(this));
-    this.speechToText.addEventListener('error', this.onSTTError.bind(this));
   }
 
   setupNetworkMonitoring() {
@@ -114,14 +107,19 @@ class ComprehensiveSTTDemo {
       return;
     }
 
+    // No system dialog shows a prompt anymore: promptText is only a label for the log
+    const hint = options.promptText || 'Speak now...';
     const config = {
-      promptText: options.promptText || 'Speak now...',
+      language: options.language || 'en-US',
       maxResults: options.maxResults || 5,
       languageModel: options.languageModel || this.speechToText.LANGUAGE_MODEL_FREE_FORM
     };
 
-    console.log(`🎤 Starting recognition: "${config.promptText}"`);
+    console.log(`🎤 Starting recognition: "${hint}"`);
     this.speechToText.startSpeechToText(config);
+
+    // Safety limit: the session normally ends by itself after a pause, and this does nothing once it has finished
+    this.stopTimer = setTimeout(() => this.speechToText.stopRecording(), options.listenMs || 8000);
   }
 
   startContinuousListening() {
@@ -359,31 +357,29 @@ class ComprehensiveSTTDemo {
   // 🛡️ ADVANCED ERROR HANDLING & RECOVERY
   // =========================================================================
 
-  handleSTTError(error) {
+  // Failures arrive in `completed` with success: false and a message
+  handleSTTError(message) {
     this.errorCount++;
-    console.error(`🚨 STT Error #${this.errorCount}: ${error}`);
+    console.error(`🚨 STT Error #${this.errorCount}: ${message}`);
 
     const errorHandlers = {
-      'ERROR_NETWORK_TIMEOUT': () => this.handleNetworkTimeout(),
-      'ERROR_NETWORK': () => this.handleNetworkError(),
-      'ERROR_AUDIO': () => this.handleAudioError(),
-      'ERROR_SERVER': () => this.handleServerError(),
-      'ERROR_CLIENT': () => this.handleClientError(),
-      'ERROR_SPEECH_TIMEOUT': () => this.handleSpeechTimeout(),
-      'ERROR_NO_MATCH': () => this.handleNoMatch(),
-      'ERROR_RECOGNIZER_BUSY': () => this.handleRecognizerBusy(),
-      'ERROR_INSUFFICIENT_PERMISSIONS': () => this.handleInsufficientPermissions()
+      'Recognition error: No speech detected': () => this.handleNoMatch(),
+      'Recognition error: Network error': () => this.handleNetworkError(),
+      'Recognition error: Audio recording error': () => this.handleAudioError(),
+      'Recognition error: Recognizer busy': () => this.handleRecognizerBusy(),
+      'Microphone permission not granted': () => this.handleInsufficientPermissions(),
+      'Speech recognition permission denied': () => this.handleInsufficientPermissions()
     };
 
-    const handler = errorHandlers[error];
+    const handler = errorHandlers[message];
     if (handler) {
       handler();
     } else {
-      this.handleUnknownError(error);
+      this.handleUnknownError(message);
     }
 
-    // Auto-retry logic for certain errors
-    if (this.shouldRetryOnError(error) && this.continuousMode) {
+    // Auto-retry when nothing was heard
+    if (message === 'Recognition error: No speech detected' && this.continuousMode && this.errorCount < 3) {
       setTimeout(() => {
         console.log('🔄 Auto-retrying after error...');
         this.startListening({
@@ -392,20 +388,6 @@ class ComprehensiveSTTDemo {
         });
       }, 2000);
     }
-  }
-
-  shouldRetryOnError(error) {
-    const retryableErrors = [
-      'ERROR_SPEECH_TIMEOUT',
-      'ERROR_NO_MATCH',
-      'ERROR_NETWORK_TIMEOUT'
-    ];
-    return retryableErrors.includes(error) && this.errorCount < 3;
-  }
-
-  handleNetworkTimeout() {
-    console.log('🌐 Network timeout - check internet connection');
-    console.log('💬 Network timeout. Please check your internet connection.');
   }
 
   handleNetworkError() {
@@ -418,28 +400,13 @@ class ComprehensiveSTTDemo {
     console.log('💬 Microphone error. Please check microphone permissions and try again.');
   }
 
-  handleServerError() {
-    console.log('🖥️ Server error - recognition service issues');
-    console.log('💬 Speech recognition server error. Please try again in a moment.');
-  }
-
-  handleClientError() {
-    console.log('📱 Client error - local device issues');
-    console.log('💬 Speech recognition client error. Please restart the app.');
-  }
-
-  handleSpeechTimeout() {
-    console.log('🔇 Speech timeout - no speech detected');
+  handleNoMatch() {
+    console.log('❓ No match - nothing recognized');
     console.log('💬 No speech detected. Please speak more clearly and try again.');
   }
 
-  handleNoMatch() {
-    console.log('❓ No match - speech not recognized');
-    console.log('💬 Could not recognize speech. Please try speaking more clearly.');
-  }
-
   handleRecognizerBusy() {
-    console.log('⏳ Recognizer busy - service overloaded');
+    console.log('⏳ Recognizer busy - another session is running');
     console.log('💬 Speech recognition is busy. Please wait a moment and try again.');
   }
 
@@ -449,9 +416,9 @@ class ComprehensiveSTTDemo {
     this.requestAudioPermission();
   }
 
-  handleUnknownError(error) {
-    console.log(`❓ Unknown error: ${error}`);
-    console.log(`💬 An unknown error occurred: ${error}`);
+  handleUnknownError(message) {
+    console.log(`❓ Unknown error: ${message}`);
+    console.log(`💬 An unknown error occurred: ${message}`);
   }
 
   handleNetworkLoss() {
@@ -476,11 +443,14 @@ class ComprehensiveSTTDemo {
 
   onSTTCompleted(e) {
     console.log('✅ STT Completed');
+    clearTimeout(this.stopTimer);
     this.isListening = false;
 
-    if (e.results && e.results.length > 0) {
-      console.log('📝 Recognition results:', e.results);
-      this.processVoiceCommand(e.results[0]);
+    if (!e.success) {
+      this.handleSTTError(e.message);
+    } else if (e.detectedInput) {
+      console.log('📝 Best result:', e.text, '| alternatives:', e.words);
+      this.processVoiceCommand(e.text);
     } else {
       console.log('🔇 No speech detected');
 
@@ -494,12 +464,6 @@ class ComprehensiveSTTDemo {
         }, 1000);
       }
     }
-  }
-
-  onSTTError(e) {
-    console.error('💥 STT Error in event handler:', e.error);
-    this.isListening = false;
-    this.handleSTTError(e.error);
   }
 
   // =========================================================================
@@ -543,6 +507,7 @@ class ComprehensiveSTTDemo {
         console.log(`🌍 Testing ${lang.code}: Say "${lang.test}"`);
         this.startListening({
           promptText: `Say: "${lang.test}" (${lang.code})`,
+          language: lang.code,
           maxResults: 1
         });
       }, index * 5000);
@@ -582,18 +547,10 @@ class ComprehensiveSTTDemo {
   // 🔧 UTILITY METHODS
   // =========================================================================
 
-  showPlatformLimitation() {
-    console.log('⚠️ Platform Limitation Notice:');
-    console.log('   Speech-to-Text is only available on Android devices');
-    console.log('   Current platform:', Ti.Platform.osname);
-    console.log('   Please test this demo on an Android device');
-  }
-
   showUnsupportedDevice() {
     console.log('❌ Device Not Supported:');
-    console.log('   Speech recognition is not available on this Android device');
-    console.log('   Requirements: Android 5.0+ with Google Play Services');
-    console.log('   Please ensure Google app is installed and updated');
+    console.log('   Speech recognition is not available on this device');
+    console.log('   On Android it needs a speech recognition service, such as the Google app installed and updated');
   }
 
   showPermissionDenied() {
@@ -641,7 +598,6 @@ class ComprehensiveSTTDemo {
     if (this.speechToText) {
       this.speechToText.removeEventListener('started', this.onSTTStarted);
       this.speechToText.removeEventListener('completed', this.onSTTCompleted);
-      this.speechToText.removeEventListener('error', this.onSTTError);
     }
 
     // Clear data
@@ -714,7 +670,7 @@ class ComprehensiveSTTDemo {
     this.speechToText.removeEventListener('completed', originalHandler);
 
     this.speechToText.addEventListener('completed', (e) => {
-      console.log(`✅ Test ${currentTest} completed: "${e.results?.[0] || 'No result'}"`);
+      console.log(`✅ Test ${currentTest} completed: "${e.text || 'No result'}"`);
       setTimeout(runNextTest, 1000);
     });
 

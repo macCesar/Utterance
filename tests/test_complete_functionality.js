@@ -76,36 +76,33 @@ try {
       console.log('🎤 STT Started - Listening for speech...');
     });
 
+    // Failures arrive here too, with success: false and a message
     speechToText.addEventListener('completed', function (e) {
+      if (!e.success) {
+        console.log('❌ STT failed:', e.message);
+        return;
+      }
       console.log('✅ STT Completed:', e);
       console.log('📝 Recognized text:', e.text || 'No text recognized');
     });
 
-    speechToText.addEventListener('error', function (e) {
-      console.log('❌ STT Error:', e);
-    });
+    const listen = function () {
+      console.log('🎤 Starting STT test - Please speak now...');
+      speechToText.startSpeechToText({ language: 'en-US' });
+      // Safety limit: the session normally ends by itself after a pause, and this does nothing once it has finished
+      setTimeout(function () { speechToText.stopRecording(); }, 8000);
+    };
 
-    // Platform-specific STT configuration
-    let sttConfig = {};
-
-    if (Ti.Platform.osname === 'android') {
-      console.log('🤖 Configuring Android STT...');
-      sttConfig = {
-        promptText: "Say something... (Android STT Test)",
-        maxResults: 5,
-        languageModel: speechToText.LANGUAGE_MODEL_FREE_FORM || 'free_form'
-      };
-    } else if (Ti.Platform.osname === 'iphone' || Ti.Platform.osname === 'ipad') {
-      console.log('🍎 Configuring iOS STT...');
-      sttConfig = {
-        promptText: "Say something... (iOS STT Test)",
-        locale: "en-US",
-        timeout: 30
-      };
+    // On Android the microphone permission must be granted before the first call
+    if (Ti.Platform.osname === 'android' && !Ti.Android.hasPermission('android.permission.RECORD_AUDIO')) {
+      Ti.Android.requestPermissions(['android.permission.RECORD_AUDIO'], function (e) {
+        if (e.success) {
+          listen();
+        }
+      });
+    } else {
+      listen();
     }
-
-    console.log('🎤 Starting STT test - Please speak when prompted...');
-    speechToText.startSpeechToText(sttConfig);
 
   } else {
     console.log('⚠️ STT not supported on this device/platform');
@@ -129,11 +126,9 @@ try {
   console.log('  - MIN_SPEECH_RATE:', speech.MIN_SPEECH_RATE || 'Not defined');
   console.log('  - MAX_SPEECH_RATE:', speech.MAX_SPEECH_RATE || 'Not defined');
 
-  if (Ti.Platform.osname === 'android') {
-    const stt = utterance.createSpeechToText();
-    console.log('  - LANGUAGE_MODEL_FREE_FORM:', stt.LANGUAGE_MODEL_FREE_FORM || 'Not defined');
-    console.log('  - LANGUAGE_MODEL_WEB_SEARCH:', stt.LANGUAGE_MODEL_WEB_SEARCH || 'Not defined');
-  }
+  const stt = utterance.createSpeechToText();
+  console.log('  - LANGUAGE_MODEL_FREE_FORM:', stt.LANGUAGE_MODEL_FREE_FORM || 'Not defined');
+  console.log('  - LANGUAGE_MODEL_WEB_SEARCH:', stt.LANGUAGE_MODEL_WEB_SEARCH || 'Not defined');
 
 } catch (error) {
   console.log('❌ Constants test failed:', error.message);

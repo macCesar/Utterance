@@ -30,8 +30,16 @@ if (stt.isSupported()) {
     console.log('✅ STT Result:', e.text);
   });
 
-  // Start STT (will request microphone permissions)
-  stt.startSpeechToText({
-    promptText: "Say 'hello world'"
-  });
+  // On Android the microphone permission must be granted first; iOS asks on the first call
+  const start = () => {
+    console.log("Say 'hello world'");
+    stt.startSpeechToText({ language: 'en-US' });
+    setTimeout(() => stt.stopRecording(), 6000);
+  };
+
+  if (Ti.Platform.osname === 'android' && !Ti.Android.hasPermission('android.permission.RECORD_AUDIO')) {
+    Ti.Android.requestPermissions(['android.permission.RECORD_AUDIO'], (e) => e.success && start());
+  } else {
+    start();
+  }
 }
