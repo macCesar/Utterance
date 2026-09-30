@@ -1,0 +1,72 @@
+# Changelog
+
+All notable changes to Utterance are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+## [4.0.0] - 2026-09-30
+
+### Added
+- iOS: speech-to-text is supported and documented. `startSpeechToText()` listens live from the microphone through `SFSpeechRecognizer`, and `stopRecording()` ends the audio.
+- Android: `stopRecording()`, a `language` option (for example `es-MX`), and `text` and `confidence` fields in `completed`. `started` fires when the microphone is open.
+- iOS: a session now ends by itself after a pause, as on Android. Before, it listened until `stopRecording()` was called.
+- Both platforms: new `silenceTimeout` (seconds of silence after speech) and `noSpeechTimeout` (seconds to wait for speech) options; 0 turns either one off. iOS defaults to 2 and 6 seconds. On Android the recognizer decides unless the options are set; then the module passes the silence length to the recognizer as a hint and also ends the session itself, so a shorter value always applies.
+- Both platforms: `completed` delivers `{ success, text, confidence, words, wordCount, detectedInput }`, or `{ success: false, message, detectedInput: false, wordCount: 0, words: [] }` on failure. `words` lists the alternative transcriptions, best first, and `wordCount` counts them.
+- `CHANGELOG.md`, which replaces the "What's new" section of the README.
+
+### Changed
+- Android, breaking: `startSpeechToText()` listens inside the app with `SpeechRecognizer` instead of opening the system's voice dialog, so the app shows its own indicator. `promptText` has no effect and `completed` no longer includes `requestCode`.
+- Android, breaking: the app must have `android.permission.RECORD_AUDIO` granted before the first call (`Ti.Android.requestPermissions()`). Without it, `completed` reports `success: false` and `message: "Microphone permission not granted"`.
+- Android, breaking: silence or an unrecognized phrase reports `success: false` with `message: "Recognition error: No speech detected"`, like iOS. Before, the dialog returned `success: true` with `detectedInput: false`.
+- Android: `isSupported()` asks `SpeechRecognizer.isRecognitionAvailable()`, and the module declares `<queries>` for `android.speech.RecognitionService`, which Android 11 and later need to find the recognizer.
+- iOS: the default language is the system language when `SFSpeechRecognizer` supports it (same region first, then any region of that language), and `en-US` otherwise. Before it was always `en-US`. The `language` option still overrides it.
+- Example apps: `android/example/app.js` and `ios/example/app.js` (identical) were rewritten as a demo with a Speak tab and a Listen tab. The Speak tab lists only the languages that have an installed voice.
+
+### Fixed
+- iOS: `stopRecording()` canceled the recognition task, so `completed` arrived with an empty `text`, followed by a second `completed` with `Recognition request was canceled`. The transcript was lost. It now ends the audio and waits for the final result.
+- iOS: after a listening session, text-to-speech stayed silent. The module switched the app's audio session to the Record category, which does not play sound, and never switched it back. It now restores the previous category when the session ends.
+- iOS: `stopRecording()` left the microphone tap installed, so a second `startSpeechToText()` raised `nullptr == Tap()` and the app showed an error screen.
+- iOS: without an audio input (a Simulator without a microphone, or a microphone another app holds) `startSpeechToText()` raised an exception. `completed` now reports `success: false` and `message: "No audio input available"`.
+- Documentation: the event tables did not list `stopped`, which `stopSpeaking()` fires on both platforms. `completed` never carried `results` on Android; it carries `words`. Speech-to-text has no `error` event: errors arrive in `completed` with `success: false`. The README, the guides and the examples said otherwise and are corrected. `documentation/speech_to_text.md` was rewritten.
+
+### Testing
+- iOS: one iPad (9th generation), speaking Spanish (`es-MX`). The automatic end after a pause and text-to-speech playing after a listening session were verified there; the 6 second no-speech timeout and a custom `silenceTimeout` were not. Not tested: other devices or languages, on-device recognition, and accuracy against other engines. The module does not set `requiresOnDeviceRecognition` or `addsPunctuation`, so the text has no punctuation and the audio may go to Apple's servers.
+- Android: the `silenceTimeout` and `noSpeechTimeout` options were not tested yet. One OPPO CPH2639 (Android 16) with the Google recognizer, speaking Spanish (`es-MX`) and English (`en-US`). Verified: no system dialog, the runtime permission flow, `started` and `completed` with `text` and `words`, silence reported as `No speech detected`, and `stopRecording()` ending a session early. The `confidence` value was constant (0.948) for Spanish results. Not tested: other devices, recognizers, or offline packs.
+- Example apps: checked on the iPad and the OPPO, and on an iOS 27 Simulator for the layout only (with simulated events). The list of installed languages was not checked on screen.
+
+## [3.3.0] - 2026-09-29
+- iOS now requires Titanium SDK 13.0.0, like Android. SDK 12.x lets an app target iOS 13, but the module is built for iOS 15.0, which SDK 13.x already requires.
+- No API changes.
+
+## [3.2.0] - 2026-09-29
+- Android: `startSpeaking()`, `stopSpeaking()`, `cancelSpeaking()`, `preloadVoiceData()`, `setEngine()` and the initial voice setup run on a background thread. Android's `TextToSpeech` blocks while it connects to the engine, and on the main thread that wait was reported as `Input dispatching timed out`.
+- Android: `isSpeaking` reads a flag instead of asking the engine. Only the last utterance queued moves it, so a finished earlier one cannot turn it off.
+- `requestVoices()` delivers the installed voices in a `voices` event, with the same shape on both platforms: `{ id, name, language, quality }`. Android skips voices that need a network or are not downloaded; iOS skips novelty voices.
+- New `startSpeaking()` options: `voiceId` (an `id` from the `voices` event; falls back to `voice` if that voice is gone), `bestVoice` (highest-quality installed voice for `voice`, same region first) and `queue` (add the text after the one being spoken instead of cutting it off; `completed` fires once, when the queue ends).
+- iOS: `voice: 'es_MX'` is accepted as `es-MX`, and out-of-range `rate`, `pitchMultiplier` and `volume` values are now rejected; before, the range check always passed.
+- The iOS deployment target is 15.0, the minimum of Titanium SDK 13.4.1 and of current Xcode.
+
+## [3.1.0]
+- Speech starts as soon as the engine is initialized; the 100 ms warm-up is gone.
+- Flags are reset in one place, which cuts about 89 % of the atomic operations per utterance.
+- Removed the unused `reset()` method and the old readiness checks.
+- Fast sequences, such as reading cards one after another, no longer drop utterances, because cancellation takes fewer steps.
+
+## [3.0.0]
+### Breaking changes
+- Requires iOS 11+, Android 5.0 (API 21)+ and Titanium SDK 12.7.0+. iOS 7 to 10, Android 4.x and older SDKs are no longer supported.
+- The module was rewritten with more voice control and voice quality detection. Old workarounds were removed to make it faster.
+
+### Features
+- The same `rate` value sounds equally fast or slow on iOS and Android.
+- Voice information includes a quality value.
+- Better language detection and availability checks.
+- An automatic warm-up keeps Android from losing the first utterance.
+- Method, property and event names are the same on both platforms.
+- `isSpeaking` works as a property and as `isSpeaking()` on both platforms.
+- Built for current iOS and Android versions.
+
+[Unreleased]: https://github.com/macCesar/Utterance/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/macCesar/Utterance/compare/v3.3.0...v4.0.0
+[3.3.0]: https://github.com/macCesar/Utterance/compare/v3.2.0...v3.3.0
+[3.2.0]: https://github.com/macCesar/Utterance/releases/tag/v3.2.0

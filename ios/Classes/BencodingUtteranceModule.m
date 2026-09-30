@@ -98,7 +98,7 @@
 }
 
 // Module version constant
-MAKE_SYSTEM_STR(MODULE_VERSION, @"3.3.0");
+MAKE_SYSTEM_STR(MODULE_VERSION, @"4.0.0");
 
 #pragma mark Factory Methods
 
