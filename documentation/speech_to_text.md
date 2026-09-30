@@ -1,14 +1,20 @@
-# Utterance v3.3: Speech to Text
-### Voice recognition for Titanium Android apps
+# Utterance v4.0: Speech to Text
+### Voice recognition for Titanium iOS and Android apps
 
-Utterance adds Speech-to-Text to Android Titanium projects through the native `android.speech.RecognizerIntent` API. The examples use ES6+.
+Utterance listens to the microphone inside the app and delivers the transcript in an event. It uses `SFSpeechRecognizer` on iOS and `android.speech.SpeechRecognizer` on Android. Neither platform opens a system dialog, so the app shows its own indicator while it listens. The examples use ES6+.
 
-## Requirements (v3.3)
-* Titanium SDK 13.0.0+ (the minimum in `android/manifest`)
-* Android 5.0+ / API level 21+ (was Android 4+)
-* iOS: Speech-to-Text is not supported (TTS only)
+## Requirements (v4.0)
+* Titanium SDK 13.0.0+ (the minimum in `android/manifest` and `ios/manifest`)
+* iOS 15.0+ (the module's deployment target)
+* Android 5.0+ / API level 21+
 
 ## What's new
+
+### v4.0
+- iOS: speech-to-text is supported and documented. The default language is the system language.
+- Android: `startSpeechToText()` listens inside the app instead of opening the system's voice dialog, needs `RECORD_AUDIO` granted at runtime, and has a new `stopRecording()`.
+- Both platforms: the same `completed` payload, with `text`, `confidence`, `words`, `wordCount` and `detectedInput`. Failures arrive in `completed` with `success: false`.
+- This guide was rewritten: it described an `error` event and a `results` field that the module never had. See the [changelog](../CHANGELOG.md) and the [migration guide](MIGRATION_GUIDE.md) for the full list.
 
 ### v3.1
 - Faster readiness checks: initialization follows the same path as TTS, so fewer retries happen before listening starts.
@@ -32,1517 +38,266 @@ const utterance = require('bencoding.utterance');
 
 ### Required permissions
 
-Add these permissions to your `tiapp.xml`:
+Add the usage descriptions and permissions to `tiapp.xml`:
 
 ```xml
+<ios>
+  <plist>
+    <dict>
+      <key>NSMicrophoneUsageDescription</key>
+      <string>This app uses the microphone to convert speech to text.</string>
+
+      <key>NSSpeechRecognitionUsageDescription</key>
+      <string>This app uses speech recognition for voice commands.</string>
+    </dict>
+  </plist>
+</ios>
+
 <android xmlns:android="http://schemas.android.com/apk/res/android">
-    <manifest>
-        <!-- REQUIRED: For microphone access -->
-        <uses-permission android:name="android.permission.RECORD_AUDIO"/>
-
-        <!-- REQUIRED: For online speech recognition -->
-        <uses-permission android:name="android.permission.INTERNET"/>
-
-        <!-- OPTIONAL: For better error handling -->
-        <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-    </manifest>
+  <manifest>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+  </manifest>
 </android>
 ```
 
-## Working with Speech-to-Text
-
-### Creating a Speech-to-Text instance
+iOS asks for the microphone and speech recognition permissions the first time `startSpeechToText()` runs. Android does not: the app must have `RECORD_AUDIO` granted before the first call, or `completed` reports `success: false` with `message: "Microphone permission not granted"`.
 
 ```javascript
-const utterance = require('bencoding.utterance');
-
-// Platform check (Android only)
-if (Ti.Platform.osname !== 'android') {
-    console.warn("Speech-to-Text is only available on Android");
+function ensureMicrophone(callback) {
+  if (Ti.Platform.osname !== 'android' || Ti.Android.hasPermission('android.permission.RECORD_AUDIO')) {
+    callback(true);
     return;
+  }
+  Ti.Android.requestPermissions(['android.permission.RECORD_AUDIO'], (e) => callback(e.success));
 }
+```
 
+## Working with speech-to-text
+
+### Creating an instance
+
+```javascript
 const speechToText = utterance.createSpeechToText();
 
-// Check device support
 if (!speechToText.isSupported()) {
-    console.error("Speech-to-Text not supported on this device");
-    return;
+  console.warn("Speech-to-Text not supported on this device");
+  // Offer another way to type or choose
 }
-
-console.log("✅ Speech-to-Text ready!");
 ```
 
 ## API methods
 
-### `startSpeechToText(options)`
+### `startSpeechToText(options?)`
 
-Starts speech recognition with the options below.
+Starts listening. The `started` event fires when the microphone is open and `completed` fires once, when recognition ends. The session ends by itself after a pause; `silenceTimeout` and `noSpeechTimeout` adjust how long. Calling it while it is already listening does nothing.
 
-Parameters:
+| Option          | Platform     | Description                                                                              |
+| --------------- | ------------ | ---------------------------------------------------------------------------------------- |
+| `language`      | iOS, Android | BCP 47 tag such as `es-MX`. Default: the system language on iOS (when `SFSpeechRecognizer` supports it, otherwise `en-US`) and the device language on Android |
+| `languageModel` | Android      | `speechToText.LANGUAGE_MODEL_FREE_FORM` (default) or `speechToText.LANGUAGE_MODEL_WEB_SEARCH`, passed to the recognizer |
+| `maxResults`    | Android      | How many alternative transcriptions to ask for (default 10)                              |
+| `silenceTimeout` | iOS, Android | Seconds of silence after speech before the session ends. Default on iOS: 2. On Android the recognizer decides unless you set it. 0 turns it off |
+| `noSpeechTimeout` | iOS, Android | Seconds to wait for speech to start before ending with `No speech detected`. Default on iOS: 6. On Android the recognizer decides unless you set it. 0 turns it off |
+| `promptText`    | none         | No effect. Older versions showed it in the system dialog, which no longer opens          |
 
-| Parameter       | Type     | Required     | Description                                        |
-| --------------- | -------- | ------------ | -------------------------------------------------- |
-| `promptText`    | String   | **Required** | Text displayed on the Android recording screen     |
-| `maxResults`    | Integer  | Optional     | Maximum number of recognition results (default: 1) |
-| `languageModel` | Property | Optional     | Language model for recognition accuracy            |
+For short commands such as "next card", `silenceTimeout: 1` ends the session about a second after the user stops talking. Keep `noSpeechTimeout` at 5 or more: people need a moment to start talking after the tap, and on an iPad a value of 3 cut sentences that had just begun.
 
-Language models:
+### `stopRecording()`
 
-- `speechToText.LANGUAGE_MODEL_WEB_SEARCH` - Optimized for web search terms
-- `speechToText.LANGUAGE_MODEL_FREE_FORM` - Optimized for free-form speech
-
-### Basic usage
-
-```javascript
-const speechToText = utterance.createSpeechToText();
-
-// Simple speech recognition
-speechToText.startSpeechToText({
-    promptText: "Speak clearly into the microphone..."
-});
-
-// Advanced configuration
-speechToText.startSpeechToText({
-    promptText: "Please say your command now",
-    maxResults: 5,
-    languageModel: speechToText.LANGUAGE_MODEL_FREE_FORM
-});
-```
+Ends the audio. Recognition does not stop at once: `completed` arrives a moment later with the transcript of everything said so far. Call it from a "done" button, or after your own timeout.
 
 ### `isSupported()`
 
-Checks whether Speech-to-Text is supported on the current device.
-
-```javascript
-const speechToText = utterance.createSpeechToText();
-
-if (speechToText.isSupported()) {
-    console.log("✅ Speech recognition is available");
-} else {
-    console.log("❌ Speech recognition not available");
-    // Implement alternative input method
-}
-```
+Whether the platform has speech recognition. On Android it asks `SpeechRecognizer.isRecognitionAvailable()`.
 
 ## Events
 
-### Event handling
+### `started`
+
+Fires when the microphone is open. Use it to change the button or show a level indicator.
+
+### `completed`
+
+Fires once per session, with a transcript or a failure.
+
+| Field           | Type    | Description                                                                              |
+| --------------- | ------- | ---------------------------------------------------------------------------------------- |
+| `success`       | Boolean | `true` when recognition ran to the end; `false` on failure                               |
+| `text`          | String  | The best transcription, or an empty string                                               |
+| `words`         | Array   | The alternative transcriptions, best first                                               |
+| `wordCount`     | Integer | How many entries `words` has (not how many words `text` has)                             |
+| `detectedInput` | Boolean | Whether anything was recognized                                                          |
+| `confidence`    | Number  | iOS: the average over the segments of the best transcription. Android: the recognizer's score for it. On one device the Google recognizer returned the same value (0.948) for every Spanish result, so do not rely on it there |
+| `message`       | String  | Only with `success: false`                                                               |
+
+On failure the payload is `{ success: false, message, detectedInput: false, wordCount: 0, words: [] }`. There is no separate `error` event.
 
 ```javascript
-const speechToText = utterance.createSpeechToText();
-
-// Recognition started
-speechToText.addEventListener('started', (event) => {
-    console.log("🎤 Speech recognition started");
-    // Update UI to show listening state
+speechToText.addEventListener('started', () => {
+  console.log("Listening...");
 });
 
-// Recognition completed successfully
 speechToText.addEventListener('completed', (event) => {
-    console.log("✅ Speech recognition completed");
-    
-    if (event.results && event.results.length > 0) {
-        console.log("Recognition results:", event.results);
-        
-        // Process the first (most confident) result
-        const primaryResult = event.results[0];
-        console.log(`Primary result: "${primaryResult}"`);
-        
-        // Process all results for user selection
-        event.results.forEach((result, index) => {
-            console.log(`Result ${index + 1}: "${result}"`);
-        });
-    } else {
-        console.log("No speech was recognized");
-    }
-});
-
-// Recognition error
-speechToText.addEventListener('error', (event) => {
-    console.error("❌ Speech recognition error:", event.error);
-    // Handle specific error types and provide user feedback
+  if (!event.success) {
+    console.warn(event.message);
+    return;
+  }
+  console.log("Best:", event.text, event.confidence);
+  console.log("Alternatives:", event.words);
 });
 ```
 
-### Event management example
+### Failure messages
 
-```javascript
-class SpeechRecognitionManager {
-    constructor() {
-        if (Ti.Platform.osname !== 'android') {
-            throw new Error("Speech recognition only available on Android");
-        }
-        
-        this.speechToText = utterance.createSpeechToText();
-        this.isListening = false;
-        this.setupEvents();
-        this.checkSupport();
-    }
-    
-    checkSupport() {
-        if (!this.speechToText.isSupported()) {
-            throw new Error("Speech recognition not supported on this device");
-        }
-        console.log("🎤 Speech recognition initialized successfully");
-    }
-    
-    setupEvents() {
-        this.speechToText.addEventListener('started', () => {
-            this.isListening = true;
-            console.log("🎤 Started listening...");
-            this.onListeningStarted();
-        });
-        
-        this.speechToText.addEventListener('completed', (event) => {
-            this.isListening = false;
-            console.log("✅ Recognition completed");
-            this.onRecognitionCompleted(event.results || []);
-        });
-        
-        this.speechToText.addEventListener('error', (event) => {
-            this.isListening = false;
-            console.error("❌ Recognition error:", event.error);
-            this.onRecognitionError(event.error);
-        });
-    }
-    
-    listen(promptText = "Speak now...", options = {}) {
-        if (this.isListening) {
-            console.warn("Already listening, please wait...");
-            return;
-        }
-        
-        const config = {
-            promptText,
-            maxResults: options.maxResults || 3,
-            languageModel: options.languageModel || this.speechToText.LANGUAGE_MODEL_FREE_FORM
-        };
-        
-        console.log("🎤 Starting speech recognition...");
-        this.speechToText.startSpeechToText(config);
-    }
-    
-    // Override these methods in your implementation
-    onListeningStarted() {
-        // Update UI to show listening indicator
-        console.log("👂 Listening for speech...");
-    }
-    
-    onRecognitionCompleted(results) {
-        console.log(`🎯 Recognition results (${results.length}):`, results);
-        
-        if (results.length > 0) {
-            const bestResult = results[0];
-            console.log(`📝 Best result: "${bestResult}"`);
-            
-            // Process the recognition result
-            this.processRecognitionResult(bestResult, results);
-        } else {
-            console.log("🔇 No speech was recognized");
-            this.onNoSpeechRecognized();
-        }
-    }
-    
-    onRecognitionError(error) {
-        console.error("💥 Recognition error:", error);
-        
-        // Provide user-friendly error messages
-        const errorMessages = {
-            'ERROR_NETWORK_TIMEOUT': 'Network timeout. Please check your internet connection.',
-            'ERROR_NETWORK': 'Network error. Please check your internet connection.',
-            'ERROR_AUDIO': 'Audio recording error. Please check microphone permissions.',
-            'ERROR_SERVER': 'Speech recognition server error. Please try again.',
-            'ERROR_CLIENT': 'Speech recognition client error. Please try again.',
-            'ERROR_SPEECH_TIMEOUT': 'No speech detected. Please try speaking more clearly.',
-            'ERROR_NO_MATCH': 'No speech was recognized. Please try again.',
-            'ERROR_RECOGNIZER_BUSY': 'Speech recognition is busy. Please wait and try again.',
-            'ERROR_INSUFFICIENT_PERMISSIONS': 'Microphone permission required for speech recognition.'
-        };
-        
-        const userMessage = errorMessages[error] || `Speech recognition error: ${error}`;
-        this.showUserError(userMessage);
-    }
-    
-    processRecognitionResult(primaryResult, allResults) {
-        // Override this method to process recognition results
-        console.log("Processing result:", primaryResult);
-    }
-    
-    onNoSpeechRecognized() {
-        // Override this method to handle no speech detected
-        console.log("No speech detected, please try again");
-    }
-    
-    showUserError(message) {
-        // Override this method to show user-friendly error messages
-        console.error("User Error:", message);
-    }
-}
-
-// Usage
-const speechManager = new SpeechRecognitionManager();
-
-// Start listening
-speechManager.listen("Please say your command");
-
-// Advanced listening with options
-speechManager.listen("Speak your search query", {
-    maxResults: 5,
-    languageModel: speechManager.speechToText.LANGUAGE_MODEL_WEB_SEARCH
-});
-```
+| Message                                                   | Platform     | Cause                                                              |
+| --------------------------------------------------------- | ------------ | ------------------------------------------------------------------ |
+| `Speech recognition is not supported on this device`      | iOS, Android | No recognizer available                                            |
+| `Microphone permission not granted`                       | Android      | `RECORD_AUDIO` is not granted; request it before the first call    |
+| `Speech recognition permission denied`                    | iOS          | The user denied the microphone or speech recognition permission    |
+| `No audio input available`                                | iOS          | No microphone (a Simulator without one) or another app holds it    |
+| `Recognition error: No speech detected`                   | iOS, Android | The user said nothing, or nothing could be matched                 |
+| `Recognition error: Network error`                        | Android      | The recognizer could not reach its server                          |
+| `Recognition error: Audio recording error`                | Android      | The microphone failed                                              |
+| `Recognition error: Recognizer busy`                      | Android      | Another session is still running                                   |
+| `Recognition error: Error code N`                         | Android      | Any other `SpeechRecognizer` error code                            |
+| `Speech recognizer became unavailable`                    | iOS          | The recognizer went away while listening                           |
+| `Audio session error: …`, `Audio engine start error: …`   | iOS          | The audio session or engine could not start                        |
+| `Audio engine has no input node`, `Unable to create recognition request` | iOS | Internal setup failed                                     |
+| `Unable to start speech recognition: …`                   | Android      | `SpeechRecognizer` threw while starting                            |
 
 ## Language support
 
-### Language model selection
+Pass `language` to listen in a specific language. Without it, iOS uses the system language when `SFSpeechRecognizer` supports it (same region first, then any region of that language) and `en-US` otherwise; Android leaves the choice to the recognizer, which uses the device language.
 
 ```javascript
-const speechToText = utterance.createSpeechToText();
-
-// For web search queries (better for short commands)
-speechToText.startSpeechToText({
-    promptText: "Say your search term",
-    languageModel: speechToText.LANGUAGE_MODEL_WEB_SEARCH,
-    maxResults: 3
-});
-
-// For free-form speech (better for natural conversation)
-speechToText.startSpeechToText({
-    promptText: "Speak naturally",
-    languageModel: speechToText.LANGUAGE_MODEL_FREE_FORM,
-    maxResults: 5
-});
+speechToText.startSpeechToText({ language: "es-MX" });
 ```
 
-### Multi-language speech recognition
-
-```javascript
-class MultiLanguageSpeechRecognition extends SpeechRecognitionManager {
-    constructor() {
-        super();
-        this.supportedLanguages = [
-            'en-US', 'es-ES', 'fr-FR', 'de-DE', 'it-IT', 'pt-BR'
-        ];
-        this.currentLanguage = 'en-US';
-    }
-    
-    setLanguage(languageCode) {
-        if (this.supportedLanguages.includes(languageCode)) {
-            this.currentLanguage = languageCode;
-            console.log(`🌍 Language set to: ${languageCode}`);
-        } else {
-            console.warn(`⚠️ Language ${languageCode} not supported`);
-        }
-    }
-    
-    listenInLanguage(languageCode, promptText) {
-        const previousLanguage = this.currentLanguage;
-        this.setLanguage(languageCode);
-        
-        // Note: Android speech recognition uses system language settings
-        // The language parameter affects the prompt and processing logic
-        this.listen(promptText || `Speak in ${languageCode}`);
-        
-        // Restore previous language after recognition
-        setTimeout(() => {
-            this.setLanguage(previousLanguage);
-        }, 1000);
-    }
-    
-    processRecognitionResult(primaryResult, allResults) {
-        console.log(`🌍 Processing result in ${this.currentLanguage}: "${primaryResult}"`);
-        
-        // Language-specific processing
-        switch (this.currentLanguage) {
-            case 'es-ES':
-                this.processSpanishResult(primaryResult, allResults);
-                break;
-            case 'fr-FR':
-                this.processFrenchResult(primaryResult, allResults);
-                break;
-            case 'de-DE':
-                this.processGermanResult(primaryResult, allResults);
-                break;
-            default:
-                this.processEnglishResult(primaryResult, allResults);
-                break;
-        }
-    }
-    
-    processEnglishResult(result, allResults) {
-        console.log("🇺🇸 Processing English result:", result);
-        
-        // English command processing
-        const lowerResult = result.toLowerCase();
-        
-        if (lowerResult.includes('hello')) {
-            this.handleGreeting('en');
-        } else if (lowerResult.includes('search')) {
-            this.handleSearch(result.replace(/search/gi, '').trim());
-        } else if (lowerResult.includes('time')) {
-            this.handleTimeRequest('en');
-        }
-    }
-    
-    processSpanishResult(result, allResults) {
-        console.log("🇪🇸 Processing Spanish result:", result);
-        
-        const lowerResult = result.toLowerCase();
-        
-        if (lowerResult.includes('hola')) {
-            this.handleGreeting('es');
-        } else if (lowerResult.includes('buscar')) {
-            this.handleSearch(result.replace(/buscar/gi, '').trim());
-        } else if (lowerResult.includes('hora')) {
-            this.handleTimeRequest('es');
-        }
-    }
-    
-    processFrenchResult(result, allResults) {
-        console.log("🇫🇷 Processing French result:", result);
-        
-        const lowerResult = result.toLowerCase();
-        
-        if (lowerResult.includes('bonjour')) {
-            this.handleGreeting('fr');
-        } else if (lowerResult.includes('chercher')) {
-            this.handleSearch(result.replace(/chercher/gi, '').trim());
-        } else if (lowerResult.includes('heure')) {
-            this.handleTimeRequest('fr');
-        }
-    }
-    
-    processGermanResult(result, allResults) {
-        console.log("🇩🇪 Processing German result:", result);
-        
-        const lowerResult = result.toLowerCase();
-        
-        if (lowerResult.includes('hallo')) {
-            this.handleGreeting('de');
-        } else if (lowerResult.includes('suchen')) {
-            this.handleSearch(result.replace(/suchen/gi, '').trim());
-        } else if (lowerResult.includes('zeit')) {
-            this.handleTimeRequest('de');
-        }
-    }
-    
-    handleGreeting(language) {
-        const greetings = {
-            'en': 'Hello! How can I help you?',
-            'es': '¡Hola! ¿Cómo puedo ayudarte?',
-            'fr': 'Bonjour! Comment puis-je vous aider?',
-            'de': 'Hallo! Wie kann ich Ihnen helfen?'
-        };
-        
-        console.log(`👋 Greeting in ${language}: ${greetings[language]}`);
-    }
-    
-    handleSearch(query) {
-        console.log(`🔍 Search query: "${query}"`);
-        // Implement search functionality
-    }
-    
-    handleTimeRequest(language) {
-        const now = new Date();
-        const timeFormats = {
-            'en': now.toLocaleTimeString('en-US'),
-            'es': now.toLocaleTimeString('es-ES'),
-            'fr': now.toLocaleTimeString('fr-FR'),
-            'de': now.toLocaleTimeString('de-DE')
-        };
-        
-        console.log(`🕐 Current time in ${language}: ${timeFormats[language]}`);
-    }
-}
-
-// Usage
-const multiLangSpeech = new MultiLanguageSpeechRecognition();
-
-// Listen in different languages
-multiLangSpeech.listenInLanguage('en-US', 'Speak your command in English');
-multiLangSpeech.listenInLanguage('es-ES', 'Di tu comando en español');
-multiLangSpeech.listenInLanguage('fr-FR', 'Dites votre commande en français');
-```
+On Android, `languageModel` helps the recognizer with short phrases (`LANGUAGE_MODEL_WEB_SEARCH`) or with free speech (`LANGUAGE_MODEL_FREE_FORM`). Which languages work depends on the recognizer installed on the device.
 
 ## Practical examples
 
-### Voice command system
+### Voice commands with a push-to-talk button
+
+A button starts listening and changes while the microphone is open. The alternatives in `words` make matching more forgiving, because the command is sometimes not the first guess.
 
 ```javascript
 const utterance = require('bencoding.utterance');
 
-class VoiceCommandSystem {
-    constructor() {
-        if (Ti.Platform.osname !== 'android') {
-            throw new Error("Voice commands only available on Android");
-        }
-        
-        this.speechToText = utterance.createSpeechToText();
-        this.commands = new Map();
-        this.isActive = false;
-        
-        this.setupCommands();
-        this.setupEvents();
-        this.checkSupport();
+const COMMANDS = {
+  'siguiente carta': 'next',
+  'la que sigue': 'next',
+  'pausa': 'pause'
+};
+
+class VoiceCommands {
+  constructor(button, onCommand) {
+    this.button = button;
+    this.onCommand = onCommand;
+    this.listening = false;
+    this.speechToText = utterance.createSpeechToText();
+
+    this.speechToText.addEventListener('started', () => {
+      this.listening = true;
+      this.button.title = 'Listening...';
+    });
+
+    this.speechToText.addEventListener('completed', (event) => {
+      this.listening = false;
+      this.button.title = 'Speak';
+      if (!event.success || !event.detectedInput) {
+        return;
+      }
+      const heard = event.words.map((text) => text.toLowerCase().trim());
+      const match = heard.find((text) => COMMANDS[text]);
+      if (match) {
+        this.onCommand(COMMANDS[match]);
+      }
+    });
+
+    this.button.addEventListener('click', () => this.toggle());
+  }
+
+  toggle() {
+    if (this.listening) {
+      this.speechToText.stopRecording();
+      return;
     }
-    
-    checkSupport() {
-        if (!this.speechToText.isSupported()) {
-            throw new Error("Speech recognition not supported");
-        }
-    }
-    
-    setupEvents() {
-        this.speechToText.addEventListener('started', () => {
-            console.log("🎤 Voice command system active");
-            this.isActive = true;
-        });
-        
-        this.speechToText.addEventListener('completed', (event) => {
-            this.isActive = false;
-            
-            if (event.results && event.results.length > 0) {
-                this.processCommand(event.results[0]);
-            }
-        });
-        
-        this.speechToText.addEventListener('error', (event) => {
-            this.isActive = false;
-            console.error("Voice command error:", event.error);
-        });
-    }
-    
-    setupCommands() {
-        // Register voice commands
-        this.registerCommand(['hello', 'hi', 'hey'], () => {
-            console.log("👋 Hello command executed");
-        });
-        
-        this.registerCommand(['time', 'what time'], () => {
-            const now = new Date().toLocaleTimeString();
-            console.log(`🕐 Current time: ${now}`);
-        });
-        
-        this.registerCommand(['weather'], () => {
-            console.log("🌤️ Weather command executed");
-        });
-        
-        this.registerCommand(['open', 'launch'], (command) => {
-            const app = this.extractAppName(command);
-            console.log(`🚀 Opening app: ${app}`);
-        });
-        
-        this.registerCommand(['search', 'find'], (command) => {
-            const query = this.extractSearchQuery(command);
-            console.log(`🔍 Searching for: ${query}`);
-        });
-        
-        this.registerCommand(['call', 'phone'], (command) => {
-            const contact = this.extractContact(command);
-            console.log(`📞 Calling: ${contact}`);
-        });
-        
-        this.registerCommand(['stop', 'exit', 'quit'], () => {
-            console.log("🛑 Voice commands stopped");
-            this.stop();
-        });
-    }
-    
-    registerCommand(triggers, handler) {
-        triggers.forEach(trigger => {
-            this.commands.set(trigger.toLowerCase(), handler);
-        });
-    }
-    
-    processCommand(recognizedText) {
-        const text = recognizedText.toLowerCase();
-        console.log(`🎯 Processing command: "${recognizedText}"`);
-        
-        // Find matching command
-        for (const [trigger, handler] of this.commands) {
-            if (text.includes(trigger)) {
-                console.log(`✅ Command matched: ${trigger}`);
-                handler(recognizedText);
-                return;
-            }
-        }
-        
-        console.log("❓ No matching command found");
-        this.handleUnknownCommand(recognizedText);
-    }
-    
-    extractAppName(command) {
-        // Simple extraction - in real app, use more sophisticated parsing
-        const words = command.toLowerCase().split(' ');
-        const openIndex = words.findIndex(word => word === 'open' || word === 'launch');
-        return openIndex !== -1 && openIndex < words.length - 1 ? 
-            words[openIndex + 1] : 'unknown';
-    }
-    
-    extractSearchQuery(command) {
-        const lowerCommand = command.toLowerCase();
-        const searchIndex = Math.max(
-            lowerCommand.indexOf('search for'),
-            lowerCommand.indexOf('find'),
-            lowerCommand.indexOf('search')
-        );
-        
-        if (searchIndex !== -1) {
-            const afterSearch = command.substring(searchIndex);
-            return afterSearch.replace(/^(search for|search|find)\s*/i, '').trim();
-        }
-        
-        return command;
-    }
-    
-    extractContact(command) {
-        const lowerCommand = command.toLowerCase();
-        const callIndex = Math.max(
-            lowerCommand.indexOf('call'),
-            lowerCommand.indexOf('phone')
-        );
-        
-        if (callIndex !== -1) {
-            return command.substring(callIndex).replace(/^(call|phone)\s*/i, '').trim();
-        }
-        
-        return 'unknown';
-    }
-    
-    handleUnknownCommand(command) {
-        console.log(`❓ Unknown command: "${command}"`);
-        // Could provide suggestions or fallback actions
-    }
-    
-    start() {
-        if (this.isActive) {
-            console.log("Voice commands already active");
-            return;
-        }
-        
-        this.speechToText.startSpeechToText({
-            promptText: "Say a voice command...",
-            maxResults: 1,
-            languageModel: this.speechToText.LANGUAGE_MODEL_FREE_FORM
-        });
-    }
-    
-    stop() {
-        this.isActive = false;
-        console.log("🛑 Voice command system deactivated");
-    }
-    
-    listCommands() {
-        const commandList = Array.from(this.commands.keys());
-        console.log("📋 Available commands:", commandList);
-        return commandList;
-    }
+    ensureMicrophone((granted) => {
+      if (granted) {
+        this.speechToText.startSpeechToText({ language: 'es-MX' });
+      }
+    });
+  }
 }
-
-// Usage
-const voiceCommands = new VoiceCommandSystem();
-
-// Start listening for commands
-voiceCommands.start();
-
-// List available commands
-voiceCommands.listCommands();
 ```
 
-### Real-time speech transcription
+`ensureMicrophone()` is the helper from [Required permissions](#required-permissions).
+
+### Dictation
 
 ```javascript
-class SpeechTranscriber {
-    constructor() {
-        if (Ti.Platform.osname !== 'android') {
-            throw new Error("Speech transcription only available on Android");
-        }
-        
-        this.speechToText = utterance.createSpeechToText();
-        this.transcription = [];
-        this.isTranscribing = false;
-        this.autoRestart = true;
-        
-        this.setupEvents();
-        this.checkSupport();
-    }
-    
-    checkSupport() {
-        if (!this.speechToText.isSupported()) {
-            throw new Error("Speech recognition not supported");
-        }
-    }
-    
-    setupEvents() {
-        this.speechToText.addEventListener('started', () => {
-            console.log("📝 Transcription started");
-            this.isTranscribing = true;
-            this.onTranscriptionStarted();
-        });
-        
-        this.speechToText.addEventListener('completed', (event) => {
-            this.isTranscribing = false;
-            
-            if (event.results && event.results.length > 0) {
-                const text = event.results[0];
-                this.addToTranscription(text);
-                
-                // Auto-restart for continuous transcription
-                if (this.autoRestart) {
-                    setTimeout(() => this.startListening(), 100);
-                }
-            } else if (this.autoRestart) {
-                // Restart even if no speech detected
-                setTimeout(() => this.startListening(), 500);
-            }
-        });
-        
-        this.speechToText.addEventListener('error', (event) => {
-            this.isTranscribing = false;
-            console.error("Transcription error:", event.error);
-            
-            // Auto-restart on certain errors
-            if (this.autoRestart && this.shouldRestartOnError(event.error)) {
-                setTimeout(() => this.startListening(), 1000);
-            }
-        });
-    }
-    
-    shouldRestartOnError(error) {
-        const restartableErrors = [
-            'ERROR_SPEECH_TIMEOUT',
-            'ERROR_NO_MATCH',
-            'ERROR_NETWORK_TIMEOUT'
-        ];
-        
-        return restartableErrors.includes(error);
-    }
-    
-    startListening() {
-        if (this.isTranscribing) {
-            return;
-        }
-        
-        this.speechToText.startSpeechToText({
-            promptText: "Transcribing... Speak naturally",
-            maxResults: 1,
-            languageModel: this.speechToText.LANGUAGE_MODEL_FREE_FORM
-        });
-    }
-    
-    addToTranscription(text) {
-        const timestamp = new Date().toLocaleTimeString();
-        const entry = {
-            text,
-            timestamp,
-            id: Date.now()
-        };
-        
-        this.transcription.push(entry);
-        console.log(`📝 [${timestamp}] ${text}`);
-        
-        this.onTextTranscribed(entry);
-    }
-    
-    startTranscription() {
-        this.autoRestart = true;
-        this.startListening();
-        console.log("🎤 Continuous transcription started");
-    }
-    
-    stopTranscription() {
-        this.autoRestart = false;
-        this.isTranscribing = false;
-        console.log("🛑 Transcription stopped");
-    }
-    
-    getTranscription() {
-        return this.transcription;
-    }
-    
-    getFullText() {
-        return this.transcription.map(entry => entry.text).join(' ');
-    }
-    
-    clearTranscription() {
-        this.transcription = [];
-        console.log("🗑️ Transcription cleared");
-    }
-    
-    exportTranscription() {
-        const fullText = this.getFullText();
-        const timestamp = new Date().toISOString();
-        
-        return {
-            text: fullText,
-            entries: this.transcription,
-            exported: timestamp,
-            wordCount: fullText.split(' ').length
-        };
-    }
-    
-    // Override these methods in your implementation
-    onTranscriptionStarted() {
-        // Update UI to show transcription is active
-    }
-    
-    onTextTranscribed(entry) {
-        // Update UI with new transcribed text
-        console.log("New transcription entry:", entry);
-    }
-}
+const speechToText = utterance.createSpeechToText();
+let transcript = '';
 
-// Usage
-const transcriber = new SpeechTranscriber();
+speechToText.addEventListener('completed', (event) => {
+  if (event.success) {
+    transcript += (transcript ? ' ' : '') + event.text;
+    textArea.value = transcript;
+  }
+});
 
-// Start continuous transcription
-transcriber.startTranscription();
-
-// Stop transcription
-// transcriber.stopTranscription();
-
-// Get current transcription
-setTimeout(() => {
-    const transcription = transcriber.getFullText();
-    console.log("Full transcription:", transcription);
-    
-    // Export transcription
-    const exported = transcriber.exportTranscription();
-    console.log("Exported data:", exported);
-}, 30000); // After 30 seconds
+startButton.addEventListener('click', () => ensureMicrophone((granted) => {
+  if (granted) {
+    speechToText.startSpeechToText({ language: 'es-MX' });
+  }
+}));
+stopButton.addEventListener('click', () => speechToText.stopRecording());
 ```
 
-## Advanced configuration
+Each session ends with one `completed`. To keep dictating, start another session from the next tap.
 
-### Network state handling
+## Platform differences
 
-```javascript
-class NetworkAwareSpeechRecognition {
-    constructor() {
-        this.speechToText = utterance.createSpeechToText();
-        this.networkState = this.checkNetworkState();
-        this.setupNetworkMonitoring();
-        this.setupEvents();
-    }
-    
-    checkNetworkState() {
-        // Check if device has internet connectivity
-        return Ti.Network.online;
-    }
-    
-    setupNetworkMonitoring() {
-        Ti.Network.addEventListener('change', (e) => {
-            this.networkState = e.online;
-            console.log(`🌐 Network state changed: ${e.online ? 'Online' : 'Offline'}`);
-            
-            if (!e.online && this.isListening) {
-                this.handleNetworkLoss();
-            }
-        });
-    }
-    
-    setupEvents() {
-        this.speechToText.addEventListener('error', (event) => {
-            if (this.isNetworkError(event.error)) {
-                this.handleNetworkError(event.error);
-            }
-        });
-    }
-    
-    isNetworkError(error) {
-        const networkErrors = [
-            'ERROR_NETWORK',
-            'ERROR_NETWORK_TIMEOUT', 
-            'ERROR_SERVER'
-        ];
-        
-        return networkErrors.includes(error);
-    }
-    
-    handleNetworkError(error) {
-        console.error("🌐 Network-related speech error:", error);
-        
-        if (!this.networkState) {
-            this.showOfflineMessage();
-        } else {
-            this.retryWithNetworkCheck();
-        }
-    }
-    
-    handleNetworkLoss() {
-        console.log("📡 Network lost during speech recognition");
-        this.showOfflineMessage();
-    }
-    
-    showOfflineMessage() {
-        console.log("📵 Speech recognition requires internet connection");
-        // Show user-friendly offline message
-    }
-    
-    retryWithNetworkCheck() {
-        if (this.checkNetworkState()) {
-            console.log("🔄 Retrying speech recognition...");
-            setTimeout(() => this.startListening(), 2000);
-        } else {
-            this.showOfflineMessage();
-        }
-    }
-    
-    startListening(options = {}) {
-        if (!this.networkState) {
-            this.showOfflineMessage();
-            return;
-        }
-        
-        // Proceed with normal speech recognition
-        this.speechToText.startSpeechToText({
-            promptText: options.promptText || "Speak now...",
-            maxResults: options.maxResults || 3,
-            languageModel: options.languageModel || this.speechToText.LANGUAGE_MODEL_FREE_FORM
-        });
-    }
-}
-
-// Usage
-const networkAwareSpeech = new NetworkAwareSpeechRecognition();
-networkAwareSpeech.startListening();
-```
-
-### Permission handling
-
-```javascript
-class PermissionAwareSpeechRecognition {
-    constructor() {
-        this.speechToText = utterance.createSpeechToText();
-        this.hasPermissions = false;
-        this.checkPermissions();
-    }
-    
-    checkPermissions() {
-        if (Ti.Platform.osname === 'android') {
-            const hasAudioPermission = Ti.Android.hasPermission('android.permission.RECORD_AUDIO');
-            
-            if (!hasAudioPermission) {
-                this.requestAudioPermission();
-            } else {
-                this.hasPermissions = true;
-                console.log("✅ Audio permissions granted");
-            }
-        }
-    }
-    
-    requestAudioPermission() {
-        console.log("🎤 Requesting audio permission...");
-        
-        Ti.Android.requestPermissions(['android.permission.RECORD_AUDIO'], (e) => {
-            if (e.success) {
-                console.log("✅ Audio permission granted");
-                this.hasPermissions = true;
-                this.onPermissionGranted();
-            } else {
-                console.error("❌ Audio permission denied");
-                this.hasPermissions = false;
-                this.onPermissionDenied();
-            }
-        });
-    }
-    
-    startListening(options = {}) {
-        if (!this.hasPermissions) {
-            console.error("❌ Audio permission required for speech recognition");
-            this.requestAudioPermission();
-            return;
-        }
-        
-        if (!this.speechToText.isSupported()) {
-            console.error("❌ Speech recognition not supported");
-            return;
-        }
-        
-        this.speechToText.startSpeechToText({
-            promptText: options.promptText || "Speak now...",
-            maxResults: options.maxResults || 3,
-            languageModel: options.languageModel || this.speechToText.LANGUAGE_MODEL_FREE_FORM
-        });
-    }
-    
-    onPermissionGranted() {
-        console.log("🎉 Ready for speech recognition!");
-        // You can automatically start listening here if needed
-    }
-    
-    onPermissionDenied() {
-        console.log("⚠️ Speech recognition unavailable without microphone permission");
-        // Show alternative input methods
-    }
-}
-
-// Usage
-const permissionAwareSpeech = new PermissionAwareSpeechRecognition();
-permissionAwareSpeech.startListening();
-```
-
-## Performance
-
-### Recognition management
-
-```javascript
-class OptimizedSpeechRecognition {
-    constructor() {
-        this.speechToText = utterance.createSpeechToText();
-        this.recognitionQueue = [];
-        this.isProcessing = false;
-        this.maxQueueSize = 5;
-        this.cooldownPeriod = 500; // ms between recognitions
-        
-        this.setupEvents();
-    }
-    
-    setupEvents() {
-        this.speechToText.addEventListener('started', () => {
-            this.isProcessing = true;
-        });
-        
-        this.speechToText.addEventListener('completed', (event) => {
-            this.isProcessing = false;
-            this.processNext();
-        });
-        
-        this.speechToText.addEventListener('error', (event) => {
-            this.isProcessing = false;
-            
-            // Wait before processing next item on error
-            setTimeout(() => this.processNext(), this.cooldownPeriod * 2);
-        });
-    }
-    
-    queueRecognition(options) {
-        if (this.recognitionQueue.length >= this.maxQueueSize) {
-            console.warn("Recognition queue full, dropping oldest request");
-            this.recognitionQueue.shift();
-        }
-        
-        this.recognitionQueue.push(options);
-        
-        if (!this.isProcessing) {
-            this.processNext();
-        }
-    }
-    
-    processNext() {
-        if (this.recognitionQueue.length === 0 || this.isProcessing) {
-            return;
-        }
-        
-        const options = this.recognitionQueue.shift();
-        
-        setTimeout(() => {
-            if (!this.isProcessing) {
-                this.speechToText.startSpeechToText(options);
-            }
-        }, this.cooldownPeriod);
-    }
-    
-    listen(promptText, priority = false) {
-        const options = {
-            promptText: promptText || "Speak now...",
-            maxResults: 3,
-            languageModel: this.speechToText.LANGUAGE_MODEL_FREE_FORM
-        };
-        
-        if (priority) {
-            // Add to front of queue for high priority requests
-            this.recognitionQueue.unshift(options);
-        } else {
-            this.queueRecognition(options);
-        }
-    }
-    
-    clearQueue() {
-        this.recognitionQueue = [];
-        console.log("🗑️ Recognition queue cleared");
-    }
-    
-    getQueueStatus() {
-        return {
-            queueLength: this.recognitionQueue.length,
-            isProcessing: this.isProcessing,
-            maxQueueSize: this.maxQueueSize
-        };
-    }
-}
-
-// Usage
-const optimizedSpeech = new OptimizedSpeechRecognition();
-
-// Queue multiple recognition requests
-optimizedSpeech.listen("Say command 1");
-optimizedSpeech.listen("Say command 2");
-optimizedSpeech.listen("Say urgent command", true); // Priority request
-
-// Check queue status
-console.log("Queue status:", optimizedSpeech.getQueueStatus());
-```
-
-## Error handling and recovery
-
-### Error management
-
-```javascript
-class RobustSpeechRecognition {
-    constructor() {
-        this.speechToText = utterance.createSpeechToText();
-        this.errorCount = 0;
-        this.maxRetries = 3;
-        this.backoffDelay = 1000; // Start with 1 second
-        this.setupEvents();
-    }
-    
-    setupEvents() {
-        this.speechToText.addEventListener('completed', (event) => {
-            this.errorCount = 0; // Reset error count on success
-            this.backoffDelay = 1000; // Reset backoff delay
-        });
-        
-        this.speechToText.addEventListener('error', (event) => {
-            this.handleError(event.error);
-        });
-    }
-    
-    handleError(error) {
-        this.errorCount++;
-        console.error(`❌ Speech recognition error (${this.errorCount}/${this.maxRetries}): ${error}`);
-        
-        const errorInfo = this.getErrorInfo(error);
-        
-        if (errorInfo.retryable && this.errorCount < this.maxRetries) {
-            this.scheduleRetry(errorInfo);
-        } else {
-            this.handleFinalError(error, errorInfo);
-        }
-    }
-    
-    getErrorInfo(error) {
-        const errorMap = {
-            'ERROR_NETWORK_TIMEOUT': {
-                message: 'Network timeout occurred',
-                retryable: true,
-                userMessage: 'Network timeout. Please check your internet connection.'
-            },
-            'ERROR_NETWORK': {
-                message: 'Network error',
-                retryable: true,
-                userMessage: 'Network error. Please check your internet connection.'
-            },
-            'ERROR_AUDIO': {
-                message: 'Audio recording error',
-                retryable: false,
-                userMessage: 'Microphone error. Please check microphone permissions.'
-            },
-            'ERROR_SERVER': {
-                message: 'Server error',
-                retryable: true,
-                userMessage: 'Speech recognition server error. Please try again.'
-            },
-            'ERROR_CLIENT': {
-                message: 'Client error',
-                retryable: false,
-                userMessage: 'Speech recognition client error.'
-            },
-            'ERROR_SPEECH_TIMEOUT': {
-                message: 'No speech detected',
-                retryable: true,
-                userMessage: 'No speech detected. Please try speaking more clearly.'
-            },
-            'ERROR_NO_MATCH': {
-                message: 'No speech recognized',
-                retryable: true,
-                userMessage: 'No speech was recognized. Please try again.'
-            },
-            'ERROR_RECOGNIZER_BUSY': {
-                message: 'Recognizer busy',
-                retryable: true,
-                userMessage: 'Speech recognition is busy. Please wait and try again.'
-            },
-            'ERROR_INSUFFICIENT_PERMISSIONS': {
-                message: 'Insufficient permissions',
-                retryable: false,
-                userMessage: 'Microphone permission required for speech recognition.'
-            }
-        };
-        
-        return errorMap[error] || {
-            message: `Unknown error: ${error}`,
-            retryable: false,
-            userMessage: `Speech recognition error: ${error}`
-        };
-    }
-    
-    scheduleRetry(errorInfo) {
-        console.log(`🔄 Retrying in ${this.backoffDelay}ms... (${errorInfo.message})`);
-        
-        setTimeout(() => {
-            this.retryRecognition();
-        }, this.backoffDelay);
-        
-        // Exponential backoff
-        this.backoffDelay *= 2;
-    }
-    
-    retryRecognition() {
-        console.log(`🔄 Retry attempt ${this.errorCount}`);
-        
-        // Use the last recognition options or defaults
-        this.speechToText.startSpeechToText({
-            promptText: "Retrying speech recognition...",
-            maxResults: 3,
-            languageModel: this.speechToText.LANGUAGE_MODEL_FREE_FORM
-        });
-    }
-    
-    handleFinalError(error, errorInfo) {
-        console.error(`💥 Final error after ${this.maxRetries} attempts: ${error}`);
-        
-        // Reset counters
-        this.errorCount = 0;
-        this.backoffDelay = 1000;
-        
-        // Show user-friendly error message
-        this.showUserError(errorInfo.userMessage);
-        
-        // Implement fallback strategy
-        this.implementFallback(error);
-    }
-    
-    showUserError(message) {
-        console.log(`💬 User Error: ${message}`);
-        
-        // In a real app, show dialog or notification
-        const alertDialog = Ti.UI.createAlertDialog({
-            title: 'Speech Recognition Error',
-            message: message,
-            ok: 'OK'
-        });
-        alertDialog.show();
-    }
-    
-    implementFallback(error) {
-        console.log("🔧 Implementing fallback strategy");
-        
-        // Implement alternative input methods
-        // For example: show text input dialog, keyboard, etc.
-        
-        if (error === 'ERROR_INSUFFICIENT_PERMISSIONS') {
-            this.requestPermissions();
-        } else if (error.includes('NETWORK')) {
-            this.showOfflineOptions();
-        } else {
-            this.showAlternativeInput();
-        }
-    }
-    
-    requestPermissions() {
-        console.log("📋 Requesting microphone permissions");
-        // Implement permission request logic
-    }
-    
-    showOfflineOptions() {
-        console.log("📵 Showing offline input options");
-        // Implement offline input alternatives
-    }
-    
-    showAlternativeInput() {
-        console.log("⌨️ Showing alternative input methods");
-        // Implement text input dialog or other alternatives
-    }
-    
-    listen(promptText = "Speak now...", options = {}) {
-        // Reset error count for new recognition session
-        this.errorCount = 0;
-        this.backoffDelay = 1000;
-        
-        const config = {
-            promptText,
-            maxResults: options.maxResults || 3,
-            languageModel: options.languageModel || this.speechToText.LANGUAGE_MODEL_FREE_FORM
-        };
-        
-        this.speechToText.startSpeechToText(config);
-    }
-}
-
-// Usage
-const robustSpeech = new RobustSpeechRecognition();
-robustSpeech.listen("Speak with robust error handling");
-```
-
-## Platform compatibility
-
-### Features by Android version
-
-| Feature                | Android 5.0+ | Android 6.0+ | Android 8.0+ | Android 10+ |
-| ---------------------- | ------------ | ------------ | ------------ | ----------- |
-| Basic STT              | ✅            | ✅            | ✅            | ✅           |
-| Runtime Permissions    | ❌            | ✅            | ✅            | ✅           |
-| Enhanced Recognition   | ❌            | ✅            | ✅            | ✅           |
-| Background Recognition | ❌            | ⚠️            | ⚠️            | ❌           |
-
-### Device compatibility check
-
-```javascript
-class DeviceCompatibilityChecker {
-    constructor() {
-        this.speechToText = utterance.createSpeechToText();
-        this.deviceInfo = this.getDeviceInfo();
-    }
-    
-    getDeviceInfo() {
-        return {
-            platform: Ti.Platform.osname,
-            version: Ti.Platform.version,
-            apiLevel: Ti.Platform.Android ? Ti.Platform.Android.API_LEVEL : null,
-            model: Ti.Platform.model,
-            manufacturer: Ti.Platform.manufacturer
-        };
-    }
-    
-    checkCompatibility() {
-        const compatibility = {
-            supported: false,
-            features: {},
-            warnings: [],
-            recommendations: []
-        };
-        
-        // Platform check
-        if (this.deviceInfo.platform !== 'android') {
-            compatibility.warnings.push('Speech-to-Text only available on Android');
-            return compatibility;
-        }
-        
-        // API Level check
-        if (this.deviceInfo.apiLevel < 21) {
-            compatibility.warnings.push('Android 5.0+ required for Speech-to-Text');
-            return compatibility;
-        }
-        
-        // Device support check
-        if (!this.speechToText.isSupported()) {
-            compatibility.warnings.push('Speech recognition not available on this device');
-            return compatibility;
-        }
-        
-        compatibility.supported = true;
-        
-        // Feature availability
-        compatibility.features = {
-            basicRecognition: true,
-            runtimePermissions: this.deviceInfo.apiLevel >= 23,
-            enhancedRecognition: this.deviceInfo.apiLevel >= 23,
-            backgroundRecognition: this.deviceInfo.apiLevel >= 23 && this.deviceInfo.apiLevel < 29
-        };
-        
-        // Recommendations
-        if (this.deviceInfo.apiLevel < 26) {
-            compatibility.recommendations.push('Consider updating to Android 8.0+ for better performance');
-        }
-        
-        if (!compatibility.features.runtimePermissions) {
-            compatibility.recommendations.push('Runtime permission handling not available');
-        }
-        
-        return compatibility;
-    }
-    
-    printCompatibilityReport() {
-        const compatibility = this.checkCompatibility();
-        
-        console.log("📋 Device Compatibility Report");
-        console.log("=" .repeat(50));
-        console.log(`Device: ${this.deviceInfo.manufacturer} ${this.deviceInfo.model}`);
-        console.log(`Platform: ${this.deviceInfo.platform} ${this.deviceInfo.version}`);
-        console.log(`API Level: ${this.deviceInfo.apiLevel}`);
-        console.log(`Supported: ${compatibility.supported ? '✅' : '❌'}`);
-        
-        if (compatibility.features) {
-            console.log("\n🎯 Feature Support:");
-            Object.entries(compatibility.features).forEach(([feature, supported]) => {
-                console.log(`  ${feature}: ${supported ? '✅' : '❌'}`);
-            });
-        }
-        
-        if (compatibility.warnings.length > 0) {
-            console.log("\n⚠️ Warnings:");
-            compatibility.warnings.forEach(warning => {
-                console.log(`  - ${warning}`);
-            });
-        }
-        
-        if (compatibility.recommendations.length > 0) {
-            console.log("\n💡 Recommendations:");
-            compatibility.recommendations.forEach(rec => {
-                console.log(`  - ${rec}`);
-            });
-        }
-        
-        return compatibility;
-    }
-}
-
-// Usage
-const compatibilityChecker = new DeviceCompatibilityChecker();
-const compatibility = compatibilityChecker.printCompatibilityReport();
-
-if (compatibility.supported) {
-    console.log("🎉 Device ready for Speech-to-Text!");
-} else {
-    console.log("❌ Speech-to-Text not available on this device");
-}
-```
+| Topic                   | iOS                                                                        | Android                                                        |
+| ----------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Recognizer              | `SFSpeechRecognizer`                                                       | `SpeechRecognizer`, the recognizer installed on the device     |
+| Permissions             | Asked on the first call                                                    | Must be granted before the first call                          |
+| End of speech           | The module ends the session after `silenceTimeout` seconds of silence (default 2) | The recognizer decides, and the module ends it earlier if you set `silenceTimeout` |
+| Punctuation             | None: the module does not set `addsPunctuation`                            | Up to the recognizer                                           |
+| Audio leaves the device | Possible: the module does not set `requiresOnDeviceRecognition`            | Up to the recognizer                                           |
+| `languageModel`, `maxResults` | Ignored                                                              | Passed to the recognizer                                       |
 
 ## Best practices
 
 ### Do
-
-1. Check support with `isSupported()` before starting recognition.
-2. Request microphone permission on Android 6.0+.
-3. Handle recognition errors with a fallback.
-4. Check the network state: speech recognition needs an internet connection.
-5. Pick the language model that fits the input: `WEB_SEARCH` or `FREE_FORM`.
-6. Write prompt text that tells users what to say.
-
-```javascript
-// ✅ Good practice
-const speechToText = utterance.createSpeechToText();
-
-if (speechToText.isSupported()) {
-    speechToText.addEventListener('error', (event) => {
-        console.error("Handled error:", event.error);
-        // Implement fallback
-    });
-    
-    speechToText.startSpeechToText({
-        promptText: "Please speak your command clearly",
-        maxResults: 3,
-        languageModel: speechToText.LANGUAGE_MODEL_FREE_FORM
-    });
-}
-```
+- End every session with `stopRecording()` or let it finish; `completed` always follows.
+- Show that the microphone is open from `started` to `completed`.
+- Start listening after the text-to-speech `completed` event, so the recognizer does not hear the app's own voice.
+- Check `success` and `detectedInput` before using `text`.
+- Ask for the microphone permission from a user action, such as the button that starts listening.
 
 ### Don't
+- Don't restart listening in a loop without a visible indicator and a way to stop it: it keeps the microphone open and drains the battery.
+- Don't assume `words` has more than one entry.
+- Don't rely on `promptText`: no dialog shows it.
 
-1. Don't forget that Speech-to-Text is Android-only.
-2. Don't skip error recovery.
-3. Don't assume permissions were granted; check and request them as needed.
-4. Don't start recognitions back to back; leave a cooldown between them.
-5. Don't ignore the offline case.
+## Integration with text-to-speech
 
 ```javascript
-// ❌ Bad practice
-speechToText.startSpeechToText({
-    promptText: "Speak"  // Too brief, no error handling
+const speech = utterance.createSpeech();
+const speechToText = utterance.createSpeechToText();
+
+speech.addEventListener('completed', () => {
+  ensureMicrophone((granted) => {
+    if (granted) {
+      speechToText.startSpeechToText({ language: 'es-MX' });
+    }
+  });
 });
 
-// ✅ Good practice
-if (Ti.Platform.osname === 'android' && speechToText.isSupported()) {
-    speechToText.startSpeechToText({
-        promptText: "Please speak your command clearly into the microphone",
-        maxResults: 3,
-        languageModel: speechToText.LANGUAGE_MODEL_FREE_FORM
-    });
-}
-```
-
-## Integration with Text-to-Speech
-
-### Complete voice interface
-
-```javascript
-const utterance = require('bencoding.utterance');
-
-class CompleteVoiceInterface {
-    constructor() {
-        // Initialize both TTS and STT
-        this.speech = utterance.createSpeech();
-        this.speechToText = Ti.Platform.osname === 'android' ? 
-            utterance.createSpeechToText() : null;
-        
-        this.setupTTS();
-        this.setupSTT();
-    }
-    
-    setupTTS() {
-        this.speech.addEventListener('completed', () => {
-            console.log("🗣️ TTS completed, ready for next input");
-        });
-    }
-    
-    setupSTT() {
-        if (!this.speechToText || !this.speechToText.isSupported()) {
-            console.warn("Speech-to-Text not available");
-            return;
-        }
-        
-        this.speechToText.addEventListener('completed', (event) => {
-            if (event.results && event.results.length > 0) {
-                this.processVoiceInput(event.results[0]);
-            }
-        });
-    }
-    
-    speak(text, rate = null) {
-        this.speech.startSpeaking({
-            text,
-            rate: rate || this.speech.DEFAULT_SPEECH_RATE
-        });
-    }
-    
-    listen(promptText = "Listening...") {
-        if (!this.speechToText) {
-            this.speak("Speech recognition not available on this platform");
-            return;
-        }
-        
-        this.speechToText.startSpeechToText({
-            promptText,
-            maxResults: 3,
-            languageModel: this.speechToText.LANGUAGE_MODEL_FREE_FORM
-        });
-    }
-    
-    processVoiceInput(input) {
-        console.log(`🎤 Voice input: "${input}"`);
-        
-        // Echo the input back
-        this.speak(`You said: ${input}`);
-        
-        // Process commands
-        const lowerInput = input.toLowerCase();
-        
-        if (lowerInput.includes('hello')) {
-            setTimeout(() => {
-                this.speak("Hello! How can I help you today?");
-            }, 2000);
-        } else if (lowerInput.includes('time')) {
-            setTimeout(() => {
-                const now = new Date().toLocaleTimeString();
-                this.speak(`The current time is ${now}`);
-            }, 2000);
-        }
-    }
-    
-    startConversation() {
-        this.speak("Voice interface ready. Say hello to begin.");
-        setTimeout(() => {
-            this.listen("Say hello or ask for the time");
-        }, 3000);
-    }
-}
-
-// Usage
-const voiceInterface = new CompleteVoiceInterface();
-voiceInterface.startConversation();
+speech.startSpeaking({ text: "¿Qué carta sigue?", voice: "es-MX" });
 ```
 
 ## License
