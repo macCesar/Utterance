@@ -1,5 +1,5 @@
 /**
- * Quick Utterance v4.1 Test - Verify both TTS and STT work
+ * Quick Utterance v4.2 Test - Verify both TTS and STT work
  */
 
 const utterance = require('bencoding.utterance');
@@ -13,9 +13,12 @@ const speech = utterance.createSpeech();
 console.log('TTS Supported:', speech.isSupported());
 
 if (speech.isSupported()) {
-  speech.addEventListener('completed', () => console.log('✅ TTS Done'));
+  speech.addEventListener('wordstart', (e) => console.log('… ' + e.word));
+  speech.addEventListener('completed', (e) => {
+    console.log(e.success ? '✅ TTS Done' : '❌ TTS failed: ' + e.code + ' ' + e.message);
+  });
   speech.startSpeaking({
-    text: "Testing Utterance 4.1",
+    text: "Testing Utterance 4.2",
     rate: 0.5
   });
 }

@@ -1,5 +1,5 @@
 /**
- * Utterance v3.0 - Advanced Text-to-Speech Example
+ * Utterance v4.2 - Advanced Text-to-Speech Example
  * Comprehensive demonstration of all TTS features and capabilities
  * 
  * Features:
@@ -8,15 +8,16 @@
  * - Multi-language support
  * - Advanced speech control (pause/resume)
  * - Voice caching and optimization
- * - Error handling and recovery
+ * - Error handling and recovery with error codes
  * - Performance monitoring
+ * - Words as they are spoken (wordstart), synthesizeToFile, playSilence and getState (v4.2)
  */
 
 const utterance = require('bencoding.utterance');
 
 class AdvancedTTSDemo {
   constructor() {
-    console.log('🎙️ Advanced TTS Demo - Utterance v3.0');
+    console.log('🎙️ Advanced TTS Demo - Utterance v4.2');
     console.log(`📱 Platform: ${Ti.Platform.osname} ${Ti.Platform.version}`);
 
     this.speech = utterance.createSpeech();
@@ -50,6 +51,8 @@ class AdvancedTTSDemo {
     this.speech.addEventListener('continued', this.onSpeechContinued.bind(this));
     this.speech.addEventListener('canceled', this.onSpeechCanceled.bind(this));
     this.speech.addEventListener('error', this.onSpeechError.bind(this));
+    this.speech.addEventListener('wordstart', this.onWordStart.bind(this));
+    this.speech.addEventListener('synthesized', this.onSynthesized.bind(this));
   }
 
   buildVoiceCache() {
@@ -385,35 +388,74 @@ class AdvancedTTSDemo {
   }
 
   onSpeechError(e) {
-    console.error('💥 Speech error:', e.error);
+    console.error('💥 Speech error:', e.code, e.error);
     this.performanceMetrics.errors++;
 
     // Implement error recovery strategies
-    this.handleSpeechError(e.error);
+    this.handleSpeechError(e.code);
   }
 
-  handleSpeechError(errorCode) {
+  // `code` is the same on both platforms; the constants are on the proxy (speech.ERROR_AUDIO, ...)
+  handleSpeechError(code) {
     const errorStrategies = {
-      'AVSpeechSynthesizerErrorVoiceUnavailable': () => {
-        console.log('🔄 Voice unavailable, trying with default voice...');
+      language_unavailable: () => {
+        console.log('🔄 Voice data not installed yet, trying with the default voice...');
         // Could retry with default voice
       },
-      'AVSpeechSynthesizerErrorAudioUnavailable': () => {
+      not_ready: () => {
+        console.log('🔄 The engine is still starting, trying again in a moment...');
+        // Could retry after a short delay
+      },
+      audio: () => {
         console.log('🔄 Audio unavailable, speech system may be busy...');
         // Could queue for retry
       },
-      'NETWORK_ERROR': () => {
+      network: () => {
         console.log('🔄 Network error, switching to local voices only...');
         // Could filter to local voices only
       }
     };
 
-    const strategy = errorStrategies[errorCode];
+    const strategy = errorStrategies[code];
     if (strategy) {
       strategy();
     } else {
       console.log('🔄 Unknown error, using general recovery strategy...');
     }
+  }
+
+  // =========================================================================
+  // 🆕 v4.2: WORDS, FILES, SILENCE AND STATE
+  // =========================================================================
+
+  // start and end are positions in the text that is speaking
+  onWordStart(e) {
+    console.log(`🔤 "${e.word}" at ${e.start}-${e.end}`);
+  }
+
+  onSynthesized(e) {
+    if (!e.success) {
+      console.error('💥 Could not save the speech:', e.code, e.message);
+      return;
+    }
+    console.log(`💾 Saved ${e.duration.toFixed(1)} s at ${e.sampleRate} Hz: ${e.file}`);
+  }
+
+  demonstrateWordsAndFiles() {
+    console.log('🔤 Words as they are spoken...');
+    this.speech.startSpeaking({ text: 'One two three four five', voice: 'en-US' });
+
+    // The silence and the second text wait for the first one: queue: true adds them after it
+    this.speech.playSilence(1000, { queue: true });
+    this.speech.startSpeaking({ text: 'This comes after one second of silence.', voice: 'en-US', queue: true });
+    console.log('📊 State:', JSON.stringify(this.speech.getState()));
+
+    // Nothing plays: the audio goes to a WAV file and the synthesized event says where
+    this.speech.synthesizeToFile({
+      text: 'This speech is saved to a file.',
+      voice: 'en-US',
+      file: Ti.Filesystem.applicationDataDirectory + 'advanced_example.wav'
+    });
   }
 
   // =========================================================================
@@ -443,6 +485,11 @@ class AdvancedTTSDemo {
         name: 'Advanced Controls',
         action: () => this.demonstrateAdvancedControls(),
         delay: 40000
+      },
+      {
+        name: 'Words, Silence, State and Files (v4.2)',
+        action: () => this.demonstrateWordsAndFiles(),
+        delay: 55000
       }
     ];
 
@@ -458,7 +505,7 @@ class AdvancedTTSDemo {
       console.log('\n🎉 Advanced TTS demonstration completed!');
       console.log('📊 Final performance summary:');
       this.trackPerformance(0);
-    }, 50000);
+    }, 70000);
   }
 
   // =========================================================================
@@ -499,6 +546,8 @@ class AdvancedTTSDemo {
       this.speech.removeEventListener('continued', this.onSpeechContinued);
       this.speech.removeEventListener('canceled', this.onSpeechCanceled);
       this.speech.removeEventListener('error', this.onSpeechError);
+      this.speech.removeEventListener('wordstart', this.onWordStart);
+      this.speech.removeEventListener('synthesized', this.onSynthesized);
     }
 
     this.voiceCache.clear();
