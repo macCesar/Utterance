@@ -4,6 +4,36 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Added
+- Both platforms: `taskHint`, `contextualStrings`, `onDevice` (`true`, `false` or `'prefer'`), `punctuation`, `partialResults` and `audioLevelInterval` options for `startSpeechToText()`, and `segments` and `alternatives` to add detail to `completed`. An option a platform has no equivalent for is ignored there.
+- Both platforms: `partial`, `speechstart`, `speechend`, `audiolevel` and `canceled` events, and `cancelRecording()`, which drops a session without firing `completed`.
+- Both platforms: `requestPermissions()` and `getPermissionStatus()`, `isAvailable()`, `supportsOnDevice()`, and `requestSupportedLanguages()` with its `languages` event.
+- Both platforms: `transcribeFile()`, and `appendAudio()` with `audioSource: 'buffer'`, to transcribe audio that does not come from the microphone. Android needs Android 13 for them and converts the audio to 16 kHz mono.
+- Both platforms: failures in `completed` carry a stable `code` (`no_speech`, `permission_denied`, `network`, `language_unsupported`, and more, with constants such as `ERROR_NO_SPEECH`) and the platform's `nativeCode`. `started` and `completed` carry `language` and `source`.
+- iOS: `metadata` and `voiceAnalytics` in `completed`, `customLanguageModel` and `prepareCustomLanguageModel()` (iOS 17), `getState()`, and the `audioduration` and `availability` events.
+- Android: `detectLanguage`, `allowedLanguages`, `switchLanguages`, `maxLanguageSwitches`, `languageSwitchInitialDuration`, `maskOffensiveWords`, `segmentedSession`, `minimumLength` and `biasDeviceContext` options, `downloadLanguage()`, and the `segmentresult`, `languagedetected` and `download` events.
+- The demo apps use the new API in the Listen tab: `requestPermissions()`, live text in grey, a command acted on as soon as a partial contains it, an orb that follows `audiolevel`, the languages that work without the network, an Options card and error text chosen by `code`.
+- The demo apps follow the system's light or dark mode: their colors are semantic names defined in a new `semantic.colors.json` next to `app.js` (copy both to `Resources`). On Android the action bar with the app name no longer shows, because the app draws its own header. The README has screenshots of both tabs.
+
+### Changed
+- iOS: `maxResults` limits `words` and `languageModel` selects the task hint. Before, iOS ignored both.
+- iOS: an unsupported `language` fails with `language_unsupported`. Before, the recognizer was created with no locale and failed later.
+- iOS: events fire right after the call that causes them returns, not inside it, as on Android. A call that answers at once, such as `requestPermissions()` with the permissions already granted, used to fire before the caller could wait for the event.
+- iOS: a failure closes the microphone and the recognition task before `completed` fires, so a handler that starts a new session finds the module idle.
+- Android: results that arrive from a recognizer that was already replaced or canceled are ignored.
+
+### Fixed
+- Documentation: the minimum Android version is 7.0 (API 24), the minimum of Titanium SDK 13.4.1. The README and the guides said 5.0 (API 21).
+- iOS: calling `startSpeechToText()` while the permission prompt was open started two sessions.
+- iOS: a failure after the task started (for example the audio engine failing to start) left the recognition task running.
+- iOS: `isAvailable()` and `supportsOnDevice()` return booleans.
+
+### Testing
+- iOS: an iPad (9th generation) with iOS 27, speaking Spanish and English. Tried: permissions already granted, `getPermissionStatus()`, `isAvailable()`, `supportsOnDevice()`, `getNativeAudioFormat()`, `requestSupportedLanguages()` (62 languages in 404 ms), `cancelRecording()` while idle, mid-sentence and before `started`, a session after a cancel, `transcribeFile()` with a file, a relative path and a blob in wav, m4a and mp3, `appendAudio()` with a buffer, `partial`, `audiolevel`, `audioduration`, `speechstart`, `speechend`, `no_speech`, `language_unsupported`, `invalid_file`, `onDevice: true`, `segments`, `metadata`, `voiceAnalytics`, `punctuation` and `contextualStrings` (the speech "el chonchito" came back as "El chanchito" without the option and "El chonchito" with it), and the demo apps' Listen tab. Starting a session blocks the main thread for about 130 ms (303 ms the first time). Not tried: `customLanguageModel`, `prepareCustomLanguageModel()`, the `availability` event, interruptions such as a call, the permission prompt itself, `alternatives` with content, `getState()` during a session, `onDevice: 'prefer'` and `taskHint`.
+- iOS: `speechstart` and `speechend` come from the module. The system documents callbacks for them, but on the iPad neither was called, so `speechstart` fires with the first recognized text and `speechend` when the module ends the audio.
+- Android: an OPPO CPH2639 with Android 16 and the Google recognizer, speaking Spanish and English. Tried: `requestPermissions()`, `getPermissionStatus()`, `requestSupportedLanguages()` (31 languages), `cancelRecording()` while idle, mid-sentence and before `started`, a session after a cancel, `transcribeFile()` with a file, a relative path and a blob in wav, m4a (22.05 kHz) and mp3, `appendAudio()` with a buffer, `partial`, `audiolevel`, `speechstart`, `speechend`, `no_speech`, `invalid_file`, `onDevice: true` (it reports `language_unsupported` and `language_unavailable`, because no local model is installed for `es-MX` or `en-US`) and `onDevice: 'prefer'` falling back to the network. The recognizer accepted `contextualStrings`, `punctuation`, `segments`, `alternatives`, `segmentedSession`, `minimumLength`, `detectLanguage`, `switchLanguages`, `maskOffensiveWords` and `biasDeviceContext` and showed no effect from any of them (the log shows the extras reaching it). Audio sent through `transcribeFile()` or `appendAudio()` got an empty final result, so `completed` uses the last `partial` text and `confidence` is 0. Not tried: `downloadLanguage()`, an on-device session with an installed model, Android 12 and earlier, other recognizers.
+- Not tried on either platform: the changes on Android 12 and earlier (`onDevice` as a preference, `requestSupportedLanguages()` reporting `checked: false`).
+
 ## [4.0.0] - 2026-09-30
 
 ### Added

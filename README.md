@@ -15,7 +15,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 | ------------ | -------------- | --------------- |
 | Titanium SDK | 13.0.0+        | Latest          |
 | iOS          | 15.0+          | Latest          |
-| Android      | 5.0+ (API 21+) | 10.0+ (API 29+) |
+| Android      | 7.0+ (API 24+) | 10.0+ (API 29+) |
 | Xcode        | 13.0+          | Latest          |
 | Android SDK  | Target API 33+ | Latest          |
 
@@ -94,17 +94,19 @@ speech.startSpeaking({
 
 ### Speech-to-text
 
-`startSpeechToText()` listens from the microphone inside the app on both platforms. There is no system dialog, so the app shows its own indicator, such as a button that changes while it listens. `stopRecording()` ends the audio and `completed` delivers the transcript.
-
-On Android the app needs the microphone permission granted before the first call:
+`startSpeechToText()` listens from the microphone inside the app on both platforms. There is no system dialog, so the app shows its own indicator, such as a button that changes while it listens. `stopRecording()` ends the audio and `completed` delivers the transcript. `partial` delivers the text while the person is still talking, and `cancelRecording()` drops the session.
 
 ```javascript
 const utterance = require('bencoding.utterance');
 const speechToText = utterance.createSpeechToText();
 
+speechToText.addEventListener('partial', (event) => {
+  console.log("So far:", event.text);
+});
+
 speechToText.addEventListener('completed', (event) => {
   if (!event.success) {
-    console.warn(event.message);
+    console.warn(event.code, event.message);
     return;
   }
   console.log(event.text, event.confidence);
@@ -116,21 +118,33 @@ function listen() {
 
 if (!speechToText.isSupported()) {
   console.warn("Speech-to-Text not supported on this device");
-} else if (Ti.Platform.osname === 'android' && !Ti.Android.hasPermission('android.permission.RECORD_AUDIO')) {
-  Ti.Android.requestPermissions(['android.permission.RECORD_AUDIO'], (e) => {
-    if (e.success) {
-      listen();
-    }
-  });
-} else {
+} else if (speechToText.getPermissionStatus().granted) {
   listen();
+} else {
+  speechToText.addEventListener('permissions', (event) => event.granted && listen(), { once: true });
+  speechToText.requestPermissions();
 }
 
 // Later, when the user is done speaking:
 speechToText.stopRecording();
 ```
 
-The default language is the system language on iOS (when `SFSpeechRecognizer` supports it, otherwise `en-US`) and the device language on Android. `languageModel` and `maxResults` only apply on Android. The session ends by itself after a pause. `silenceTimeout` (seconds of silence after speech) and `noSpeechTimeout` (seconds to wait for speech) adjust it on both platforms, and 0 turns either one off. Without them, iOS uses 2 and 6 seconds, and Android leaves the choice to the recognizer.
+The default language is the system language on iOS (when `SFSpeechRecognizer` supports it, otherwise `en-US`) and the device language on Android. The session ends by itself after a pause. `silenceTimeout` (seconds of silence after speech) and `noSpeechTimeout` (seconds to wait for speech) adjust it on both platforms, and 0 turns either one off. Without them, iOS uses 2 and 6 seconds, and Android leaves the choice to the recognizer.
+
+The same options work on both platforms where the platform has the feature: `taskHint`, `contextualStrings`, `onDevice`, `punctuation`, `segments` and `alternatives`. `transcribeFile()` and `appendAudio()` transcribe audio that does not come from the microphone. Failures carry a stable `code`. The [speech-to-text guide](documentation/speech_to_text.md) has every option, the error codes and what was tried on each platform.
+
+## Demo app
+
+`ios/example/app.js` and `android/example/app.js` (the two files are identical) are one demo app with two tabs. Speak reads a text aloud with the voice, language and speed you pick. Listen shows the speech-to-text API: live text while you talk, a command acted on as soon as it is heard, a level indicator, the languages that work without a connection, and the options for punctuation, on-device recognition, the search hint and expected words.
+
+To run it, copy `app.js` and `semantic.colors.json` (in the same folder) to the `Resources` folder of a Titanium app that includes the module. The comment at the top of `app.js` lists what `tiapp.xml` needs. The colors follow the system's light or dark mode.
+
+| | Speak | Listen | Listen, scrolled |
+| --- | --- | --- | --- |
+| iOS | <img src="documentation/images/example-ios-speak.png" width="200"> | <img src="documentation/images/example-ios-listen.png" width="200"> | <img src="documentation/images/example-ios-listen-options.png" width="200"> |
+| Android | <img src="documentation/images/example-android-speak.png" width="200"> | <img src="documentation/images/example-android-listen.png" width="200"> | <img src="documentation/images/example-android-listen-options.png" width="200"> |
+
+Captured on an iPhone 18 Pro simulator (iOS 27) and a Pixel 8 emulator (Android 16), in English and light mode.
 
 ## Features
 
@@ -189,12 +203,16 @@ speechToText.addEventListener('started', () => {
   console.log("The microphone is open");
 });
 
+speechToText.addEventListener('partial', (event) => {
+  console.log("So far:", event.text);
+});
+
 speechToText.addEventListener('completed', (event) => {
   if (event.success && event.detectedInput) {
     console.log("Best transcription:", event.text);
     console.log("Alternatives:", event.words); // best first
   } else {
-    console.warn(event.message);
+    console.warn(event.code, event.message);
   }
 });
 
@@ -258,11 +276,23 @@ Use the property or the method, whichever you prefer. Existing code keeps workin
 
 ### Speech-to-text methods
 
-| Method                        | Platform     | Description                                                                                                                  |
-| ----------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `isSupported()`               | iOS, Android | Whether the platform supports speech recognition                                                                             |
-| `startSpeechToText(options?)` | iOS, Android | Start listening; `language` (for example `es-MX`) picks the language; `languageModel` and `maxResults` only apply on Android; `silenceTimeout` and `noSpeechTimeout` set how long a pause ends the session |
-| `stopRecording()`             | iOS, Android | Stop listening and deliver the transcript in `completed`                                                                     |
+| Method                                | Platform         | Description                                                                       |
+| ------------------------------------- | ---------------- | --------------------------------------------------------------------------------- |
+| `isSupported()`                       | iOS, Android     | Whether the platform supports speech recognition                                  |
+| `isAvailable(language?)`              | iOS, Android     | Whether recognition can run now (Android ignores the language)                    |
+| `supportsOnDevice(language?)`         | iOS, Android     | Whether it can run without the network (Android ignores the language)             |
+| `startSpeechToText(options?)`         | iOS, Android     | Start listening. See the [guide](documentation/speech_to_text.md) for the options |
+| `stopRecording()`                     | iOS, Android     | Stop listening and deliver the transcript in `completed`                          |
+| `cancelRecording()`                   | iOS, Android     | Drop the session: `canceled` fires and `completed` does not                       |
+| `transcribeFile(file, options?)`      | iOS, Android 13+ | Transcribe a recorded file                                                        |
+| `appendAudio(data)`                   | iOS, Android 13+ | Send PCM audio to a session started with `audioSource: 'buffer'`                  |
+| `getNativeAudioFormat()`              | iOS, Android     | The audio format the recognizer prefers                                           |
+| `getPermissionStatus()`               | iOS, Android     | The microphone (and on iOS speech recognition) permission state                   |
+| `requestPermissions()`                | iOS, Android     | Ask for the permissions; the `permissions` event answers                          |
+| `requestSupportedLanguages()`         | iOS, Android     | The `languages` event lists them and which ones work without the network          |
+| `downloadLanguage({ language })`      | Android 13+      | Download an on-device model; `download` events report it                          |
+| `getState()`                          | iOS              | State of the recognition task                                                     |
+| `prepareCustomLanguageModel(options)` | iOS 17+          | Prepare a custom language model; the `languagemodel` event answers                |
 
 ## Events
 
@@ -280,12 +310,26 @@ Use the property or the method, whichever you prefer. Existing code keeps workin
 
 ### Speech-to-text events
 
-| Event       | Platform     | Description                                                         |
-| ----------- | ------------ | ------------------------------------------------------------------- |
-| `started`   | iOS, Android | The microphone is open and recognition has started                  |
-| `completed` | iOS, Android | Recognition finished, or failed: check `success` and read `message` |
+| Event                      | Platform     | Description                                                                    |
+| -------------------------- | ------------ | ------------------------------------------------------------------------------ |
+| `started`                  | iOS, Android | The audio is flowing and recognition has started                               |
+| `partial`                  | iOS, Android | The text recognized so far: `{ text, words }`                                  |
+| `speechstart`, `speechend` | iOS, Android | The speech started and ended                                                   |
+| `audiolevel`               | iOS, Android | `{ level, decibels }`, with `level` from 0 to 1                                |
+| `completed`                | iOS, Android | Recognition finished, or failed: check `success` and read `code` and `message` |
+| `canceled`                 | iOS, Android | `cancelRecording()` dropped the session                                        |
+| `permissions`              | iOS, Android | Answer to `requestPermissions()`                                               |
+| `languages`                | iOS, Android | Answer to `requestSupportedLanguages()`                                        |
+| `audioduration`            | iOS          | Seconds of audio processed so far                                              |
+| `availability`             | iOS          | The recognizer became available or unavailable                                 |
+| `languagemodel`            | iOS          | Answer to `prepareCustomLanguageModel()`                                       |
+| `download`                 | Android      | Progress of `downloadLanguage()`                                               |
+| `segmentresult`            | Android      | One piece of a `segmentedSession`                                              |
+| `languagedetected`         | Android      | The recognizer detected the spoken language                                    |
 
-`completed` on success: `{ success: true, text, confidence, words, wordCount, detectedInput }`. On failure: `{ success: false, message, detectedInput: false, wordCount: 0, words: [] }`. `words` lists the alternative transcriptions, best first, and `wordCount` counts them. `confidence` is the average of the segments of the best transcription on iOS and the recognizer's score for it on Android, which can be constant or 0 depending on the recognizer.
+Events fire only when a listener exists at that moment, and right after the call that caused them returns, not inside it.
+
+`completed` on success: `{ success: true, text, confidence, words, wordCount, detectedInput, language, source }`, plus `segments`, `alternatives`, `metadata` and `voiceAnalytics` when asked for. On failure: `{ success: false, message, code, detectedInput: false, wordCount: 0, words: [] }` plus `nativeCode` (and `nativeDomain` on iOS). `words` lists the alternative transcriptions, best first, and `wordCount` counts them. `confidence` is the average of the segments of the best transcription on iOS and the recognizer's score for it on Android, which can be constant or 0 depending on the recognizer.
 
 ## Examples
 
@@ -625,7 +669,7 @@ const rate = speech.SLOW_SPEECH_RATE;
 
 ## Permissions
 
-Text-to-speech needs no permissions. Speech-to-text needs the microphone permissions shown under [Setup](#setup), and on Android `android.permission.RECORD_AUDIO` must also be granted at runtime before the first call, as shown under [Speech-to-text](#speech-to-text).
+Text-to-speech needs no permissions. Speech-to-text needs the microphone permissions shown under [Setup](#setup). `requestPermissions()` asks for them at runtime on both platforms, as shown under [Speech-to-text](#speech-to-text); on Android the permission must be granted before the first `startSpeechToText()`.
 
 ## License
 

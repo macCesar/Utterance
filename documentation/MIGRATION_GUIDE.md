@@ -1,6 +1,14 @@
 # Utterance v4.0: migration and optimization guide
 
-Upgrade notes for Utterance, from 2.x to 3.1, from 3.1 to 3.2, from 3.2 to 3.3 and from 3.3 to 4.0.
+Upgrade notes for Utterance, from 2.x to 3.1, from 3.1 to 3.2, from 3.2 to 3.3, from 3.3 to 4.0 and from 4.0 to 4.1.
+
+## Upgrading from 4.0 to 4.1
+
+Nothing from 4.0 has to change. 4.1 adds options, events and methods for speech-to-text.
+
+1. Install the 4.1.0 packages (`bencoding.utterance-iphone-4.1.0.zip`, `bencoding.utterance-android-4.1.0.zip`) and set `version="4.1.0"` in `tiapp.xml`.
+2. Optional: replace `Ti.Android.requestPermissions()` with `requestPermissions()`, which works on both platforms, and read `event.code` instead of matching `event.message`.
+3. Three things behave differently on iOS: `maxResults` now limits `words` (it did nothing), an unsupported `language` fails with `language_unsupported`, and events fire right after the call returns instead of inside it. See [speech_to_text.md](speech_to_text.md#behavior-changes-from-40).
 
 ## Upgrading from 3.3 to 4.0
 

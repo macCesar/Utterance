@@ -5,7 +5,7 @@ Utterance speaks text in Titanium apps with AVSpeechSynthesizer on iOS and TextT
 ## Requirements (v4.0)
 * Titanium SDK 13.0.0+ (the minimum in each module's `manifest`)
 * iOS 15.0+ (was 11.0+; current Xcode no longer builds for older targets)
-* Android 5.0+ (API level 21+)
+* Android 7.0+ (API level 24+), the minimum of Titanium SDK 13.4.1
 
 ## What's new
 

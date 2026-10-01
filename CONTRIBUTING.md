@@ -25,7 +25,7 @@ The maintainer builds with Titanium CLI 9.1, Xcode 27 and JDK 21.
 
 - `ios/`: the iOS module (Objective-C) and its `dist/` zip.
 - `android/`: the Android module (Java) and its `dist/` zip.
-- `ios/example/app.js` and `android/example/app.js`: the demo app. The two files are identical.
+- `ios/example/` and `android/example/`: the demo app, `app.js` and `semantic.colors.json`. The two folders hold identical files.
 - `documentation/`: the text-to-speech, speech-to-text and migration guides.
 - `documentation/proposals/`: changes that are planned but not implemented.
 - `examples/`: smaller scripts for one feature each.
@@ -45,7 +45,7 @@ Each build writes the zip to `dist/`, and those zips are tracked in git. A rebui
 
 There is no automated test suite. Check a change by running it:
 
-- Copy `ios/example/app.js` into the `Resources/app.js` of a Titanium app that includes the module. The comment at the top of the file lists the `tiapp.xml` settings it needs. The Speak tab exercises text-to-speech and the Listen tab speech-to-text.
+- Copy `ios/example/app.js` and `ios/example/semantic.colors.json` into the `Resources` folder of a Titanium app that includes the module. The comment at the top of the file lists the `tiapp.xml` settings it needs. The Speak tab exercises text-to-speech and the Listen tab speech-to-text.
 - Copy one of the scripts in `tests/` into an app, run it and read the log.
 - Use a real device for speech-to-text. The iOS Simulator has no microphone, so speech-to-text cannot work there.
 
