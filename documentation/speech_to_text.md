@@ -1,4 +1,4 @@
-# Utterance v4.1: Speech to Text
+# Utterance v4.2: Speech to Text
 ### Voice recognition for Titanium iOS and Android apps
 
 Utterance listens to the microphone inside the app and delivers the transcript in an event. It uses `SFSpeechRecognizer` on iOS and `android.speech.SpeechRecognizer` on Android. Neither platform opens a system dialog, so the app shows its own indicator while it listens. It can also transcribe an audio file, or audio the app feeds itself. The examples use ES6+.

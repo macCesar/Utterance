@@ -4,6 +4,8 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-10-01
+
 ### Added
 - Text-to-speech, both platforms: the `wordstart` event (`{ start, end, word, utteranceId }`), `volume` on Android, `pan` on Android, `pitch` and `pitchMultiplier` as the same option, `audioUsage` (`media`, `assistant`, `notification`, `alarm`, `accessibility`) and, on Android, `audioFocus`.
 - Text-to-speech, both platforms: `synthesizeToFile()` with the `synthesized` event, `playSilence()`, `getState()`, `isPaused()` and `getMaxTextLength()`.
@@ -133,7 +135,8 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 - `isSpeaking` works as a property and as `isSpeaking()` on both platforms.
 - Built for current iOS and Android versions.
 
-[Unreleased]: https://github.com/macCesar/Utterance/compare/v4.1.0...HEAD
+[Unreleased]: https://github.com/macCesar/Utterance/compare/v4.2.0...HEAD
+[4.2.0]: https://github.com/macCesar/Utterance/compare/v4.1.0...v4.2.0
 [4.1.0]: https://github.com/macCesar/Utterance/compare/v4.0.0...v4.1.0
 [4.0.0]: https://github.com/macCesar/Utterance/compare/v3.3.0...v4.0.0
 [3.3.0]: https://github.com/macCesar/Utterance/compare/v3.2.0...v3.3.0
