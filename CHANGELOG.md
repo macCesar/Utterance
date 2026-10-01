@@ -4,6 +4,15 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Changed
+- Documentation: the text-to-speech guide and the README were rewritten around how a speech works, with recipes that were run on the iOS simulator: voice picker, word highlight, saving and playing a file, queue with silence, pause and resume, and recovery from a failure by `code`.
+- Documentation: the speech-to-text guide has a contents list and a quick start, and its text-to-speech example starts listening only after a speech that succeeded. The migration guide lists every behavior change of 4.2 and groups the 2.x steps under one heading.
+
+### Fixed
+- Documentation: the guide gave the iOS values of the rate constants of version 2 (0.3, 0.45, 0.75 and 0.9 instead of 0.25, 0.35, 0.55 and 0.65), listed `pitch` as Android only although iOS accepts it from 0.5 to 2, and described `rate` as 0 to 1 on both platforms (Android accepts 0.1 to 3).
+- Documentation: `voice` takes only language codes on iOS, so `voice: voice.name` spoke with the default voice there; the examples now pass `voiceId`. `getVoices()` is not exposed by either module and was listed as a legacy call. `pauseSpeaking()` and `stopSpeaking()` take the `SPEECH_BOUNDARY_*` constants, not strings. The `quality > 300` filters worked only on Android, because `getModernVoices()` returns 1 to 3 on iOS.
+- Documentation: the migration guide listed `cancelSpeaking()` and the `language` option of `startSpeaking()` for iOS, which has neither, gave `getModernVoices()` the same fields on both platforms, and told iOS apps to wait for an `initialized` event that only Android fires. The speech-to-text guide left out the `error` state of the `download` event.
+
 ## [4.2.0] - 2026-10-01
 
 ### Added

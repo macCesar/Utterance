@@ -4,7 +4,7 @@ Upgrade notes for Utterance, from 2.x to 3.1, from 3.1 to 3.2, from 3.2 to 3.3, 
 
 ## Upgrading from 4.1 to 4.2
 
-4.2 adds options, events and methods for text-to-speech. Steps 2 to 4 cover what behaves differently on iOS and step 5 what changes on Android.
+4.2 adds options, events and methods for text-to-speech. Steps 2 to 5 cover what behaves differently, and step 7 lists the smaller changes.
 
 1. Install the 4.2.0 packages (`bencoding.utterance-iphone-4.2.0.zip`, `bencoding.utterance-android-4.2.0.zip`) and set `version="4.2.0"` in `tiapp.xml`.
 2. On iOS, `startSpeaking()` without `queue: true` now cuts off what is speaking and speaks the new text, as Android always did. Before, the new call was ignored with "Already speaking". If your code relied on the old behavior, check `isSpeaking()` before the call, or pass `queue: true` to speak after the current text.
@@ -12,7 +12,8 @@ Upgrade notes for Utterance, from 2.x to 3.1, from 3.1 to 3.2, from 3.2 to 3.3, 
 4. iOS now fires `error`, the event the guide and Android use, with `{ error, message, code }`. A listener on `error` never ran on iOS before. `errored` still fires. A failure also arrives in `completed` with `success: false` and a `code`.
 5. On Android, a call that is refused before it is queued (an empty text, an engine that has not started) now fires `completed` with `success: false` and a `code`, and then `error`, as iOS does. Before it fired only `error`, so a handler that waits for `completed` never ran.
 6. Keep the proxy in a constant at the top of a module. If `createSpeech()` runs inside a function that finishes and nothing else holds the result, JavaScript can collect the proxy and its events stop. See [text_to_speech.md](text_to_speech.md#keep-a-reference-to-the-proxy).
-7. Optional: use `wordstart` to highlight the text as it is spoken, `synthesizeToFile()` to get the audio as a WAV file, and `volume` on Android. The full list is in [text_to_speech.md](text_to_speech.md#new-in-v42).
+7. Smaller changes, to check if your code depends on them. On iOS an empty text fails with `invalid_argument`, with `queue: true` `canceled` fires only for the last utterance, events fire after the call returns and only when a listener exists, and `stopSpeaking()` also stops a paused speech. On Android `SPEECH_BOUNDARY_IMMEDIATE` and `SPEECH_BOUNDARY_WORD` are 0 and 1 (both were 0) and the `error` event carries the message in `error`. On both platforms the events of a queued utterance report its own text and voice, not those of the last one queued.
+8. Optional: use `wordstart` to highlight the text as it is spoken, `synthesizeToFile()` to get the audio as a WAV file, and `volume` on Android. The full list is in [text_to_speech.md](text_to_speech.md#whats-new).
 
 ## Upgrading from 4.0 to 4.1
 
@@ -49,60 +50,65 @@ Nothing that worked in 3.1 needs to change; 3.2 adds options and fixes.
 4. Voice pickers: replace `getModernVoices()` calls made from the UI with `requestVoices()` and its `voices` event, and pass the chosen voice's `id` as `voiceId`.
 5. Optionally, use `bestVoice: true` for the best installed voice of a language, and `queue: true` to chain utterances without a gap. See [text_to_speech.md](text_to_speech.md).
 
-## 1. Upgrade checklist for 3.1
+## Upgrading from 2.x to 3.1
+
+Version 3.0 unified the API of both platforms and 3.1 simplified its internals. Everything below applies if you come from 2.x.
+
+### Checklist
 
 1. Install the 3.1.0 packages for iOS (`bencoding.utterance-iphone-3.1.0.zip`) and Android (`bencoding.utterance-android-3.1.0.zip`).
-2. Raise the minimums to Titanium SDK 12.7.0+, iOS 11+ and Android 5.0 (API 21)+.
+2. 3.1 needed Titanium SDK 12.7.0, iOS 11 and Android 5.0. Later versions raised the minimums: the current ones are Titanium SDK 13.0.0, iOS 15 and Android 7.0 (API 24).
 3. Replace 2.x helpers (e.g. `setPitch`, platform checks) with the API shown below.
 4. For STT, add the microphone usage descriptions to `tiapp.xml`.
 5. Remove custom TTS warm-up delays and extra reset logic; 3.1 handles both.
 
-## 2. API by platform
+### API by platform
 
-Since v3.0, iOS and Android share the same API. v3.1 keeps it and simplifies the internals.
+Since v3.0, iOS and Android share the same API. This table is the 3.1 core; the [text-to-speech](text_to_speech.md) and [speech-to-text](speech_to_text.md) guides list the current API.
 
-| Feature / Method                               | Availability | Notes                                                                                  |
-| ---------------------------------------------- | ------------ | -------------------------------------------------------------------------------------- |
-| `createSpeech()`                               | iOS, Android | Creates a text-to-speech instance.                                                     |
-| `createSpeechToText()`                         | iOS, Android | Returns a speech recognition proxy.                                                    |
-| `speech.startSpeaking()`                       | iOS, Android | Accepts `text`, `voice`, `language`, `rate`, `volume` on both platforms.               |
-| `speech.stopSpeaking()`                        | iOS, Android | Stops immediately; since 3.1 it resets only the flags that need it.                    |
-| `speech.cancelSpeaking()`                      | iOS, Android | Cancels the current utterance and clears its state.                                    |
-| `speech.isSpeaking` / `speech.isSpeaking()`    | iOS, Android | The property and the method always return the same value.                              |
-| `speech.getModernVoices()`                     | iOS, Android | Returns voice metadata: name, locale, quality, whether it needs a network.             |
-| `speechToText.startSpeechToText()`             | iOS, Android | Emits `started` and `completed`; failures arrive in `completed` with `success: false`. |
-| Rate constants (`VERY_SLOW_SPEECH_RATE`, etc.) | iOS, Android | Sound equally fast on both platforms.                                                  |
+| Feature / Method                               | Availability | Notes                                                                                                                                                  |
+| ---------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `createSpeech()`                               | iOS, Android | Creates a text-to-speech instance.                                                                                                                     |
+| `createSpeechToText()`                         | iOS, Android | Returns a speech recognition proxy.                                                                                                                    |
+| `speech.startSpeaking()`                       | iOS, Android | Accepts `text`, `voice`, `rate` and `volume` on both platforms (`volume` on Android since 4.2). Android also reads `language` as a synonym of `voice`. |
+| `speech.stopSpeaking()`                        | iOS, Android | Stops immediately; since 3.1 it resets only the flags that need it.                                                                                    |
+| `speech.cancelSpeaking()`                      | Android      | Cancels the current utterance and clears its state. iOS has `stopSpeaking()` only.                                                                     |
+| `speech.isSpeaking` / `speech.isSpeaking()`    | iOS, Android | The property and the method always return the same value.                                                                                              |
+| `speech.getModernVoices()`                     | iOS, Android | Returns voice data from the engine. The fields differ by platform; since 3.2, `requestVoices()` returns the same shape on both.                        |
+| `speechToText.startSpeechToText()`             | iOS, Android | Emits `started` and `completed`; failures arrive in `completed` with `success: false`.                                                                 |
+| Rate constants (`VERY_SLOW_SPEECH_RATE`, etc.) | iOS, Android | Sound equally fast on both platforms.                                                                                                                  |
 
-Event names match on both platforms: `initialized`, `started`, `stopped`, `canceled`, `completed`, `error`, and since 3.2 `voices`.
+Event names match on both platforms: `started`, `stopped`, `canceled`, `completed`, `error` (on iOS since 4.2), and since 3.2 `voices`. `initialized` exists on Android only.
 
-## 3. Performance changes in v3.1
+### What 3.1 changed inside
 
-- Speech begins as soon as the engine emits `initialized`; the 100 ms Android warm-up delay is gone.
+- On Android, speech begins as soon as the engine emits `initialized`; the 100 ms warm-up delay is gone.
 - `_isStopping`, `_isCanceling` and `_currentUtteranceId` reset only when needed, with about 89 % fewer atomic operations than the defensive code in 2.x.
 - The deprecated `reset()` helper and the readiness checks (`isReadyForSpeech()`) were removed and folded into `startSpeaking()`.
 - Fast stop/cancel/start sequences (card games, notification streams) no longer drop utterances.
 - Speech recognition uses the same initialization and permission flow and reports clearer diagnostics.
 
-## 4. Migrating from Utterance 2.x
+### Steps from 2.x
 
 1. Drop the iOS/Android conditionals around speaking and rate selection.
 2. Move `setLocale`, `setPitch` and similar setters into the `startSpeaking` options dictionary.
 3. Use the rate constants instead of raw numbers.
-4. Start speaking after the `initialized` event, and remove custom warm-up timers.
+4. On Android, start speaking after the `initialized` event, and remove custom warm-up timers. iOS has no `initialized` event and can speak at once.
 5. For STT, use `createSpeechToText()` and its events; the old `startRecognition` helpers are not needed.
 
-## 5. Testing checklist
+## Testing after an upgrade
 
+- Run `tests/test_tts_api.js` on a device. It checks every text-to-speech function and prints one PASS, FAIL or SKIP line for each.
 - Call `speech.startSpeaking()` three times in quick succession (stop, then start) and check that no audio is skipped.
 - Run `tests/test_fast_cancel_start.js` and `tests/test_rapid_card_speech.js`, included in the repo, to check fast sequences.
 - Check what `speechToText.startSpeechToText()` does when the microphone permission is denied, on both platforms.
-- Capture logs for `initialized`, `started`, `stopped`, `completed`, and `error` events on both platforms.
+- Capture logs for `started`, `stopped`, `completed` and `error` on both platforms, and for `initialized` on Android.
 
-## 6. More resources
+## More resources
 
 - [`documentation/text_to_speech.md`](text_to_speech.md): text-to-speech guide.
 - [`documentation/speech_to_text.md`](speech_to_text.md): speech-to-text guide for iOS and Android.
-- `examples/`: Alloy and CommonJS examples you can run.
-- `tests/`: console diagnostics for catching performance regressions.
+- `examples/`: scripts to paste into a Titanium app. `quick_test.js` is a first run and `tts_advanced_example.js` covers the 4.2 features.
+- `tests/`: scripts that run on a device and print their results to the console.
 
 The older guides merged into this one are in the Git history.

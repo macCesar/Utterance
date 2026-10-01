@@ -1,7 +1,24 @@
-# Utterance v4.2: Speech to Text
+# Utterance v4.2: speech to text
 ### Voice recognition for Titanium iOS and Android apps
 
 Utterance listens to the microphone inside the app and delivers the transcript in an event. It uses `SFSpeechRecognizer` on iOS and `android.speech.SpeechRecognizer` on Android. Neither platform opens a system dialog, so the app shows its own indicator while it listens. It can also transcribe an audio file, or audio the app feeds itself. The examples use ES6+.
+
+- [Requirements](#requirements)
+- [What's new](#whats-new)
+- [Installation and setup](#installation-and-setup)
+- [Quick start](#quick-start)
+- [Working with speech-to-text](#working-with-speech-to-text)
+- [API methods](#api-methods)
+- [Events](#events)
+- [Error codes](#error-codes)
+- [Audio that does not come from the microphone](#audio-that-does-not-come-from-the-microphone)
+- [Language support](#language-support)
+- [Practical examples](#practical-examples)
+- [Platform differences](#platform-differences)
+- [Behavior changes from 4.0](#behavior-changes-from-40)
+- [Test results](#test-results)
+- [Best practices](#best-practices)
+- [Integration with text-to-speech](#integration-with-text-to-speech)
 
 ## Requirements
 * Titanium SDK 13.0.0+ (the minimum in `android/manifest` and `ios/manifest`)
@@ -75,6 +92,46 @@ function ensureMicrophone(callback) {
 
 iOS also asks the first time `startSpeechToText()` runs. Android does not: without `RECORD_AUDIO` granted, `completed` reports `success: false` with `code: 'permission_denied'`.
 
+## Quick start
+
+```javascript
+const utterance = require('bencoding.utterance');
+
+// One proxy for the whole app, held by a constant at the top of the module
+const speechToText = utterance.createSpeechToText();
+
+speechToText.addEventListener('started', () => {
+  console.log('Listening...');            // change the button here
+});
+
+speechToText.addEventListener('partial', (event) => {
+  console.log('So far:', event.text);     // live text while the person talks
+});
+
+speechToText.addEventListener('completed', (event) => {
+  if (!event.success) {
+    console.warn(event.code, event.message);
+    return;
+  }
+  console.log(event.text, event.confidence);
+});
+
+if (!speechToText.isSupported()) {
+  console.warn('Speech-to-text is not supported on this device');
+} else {
+  ensureMicrophone((granted) => {         // the helper from Required permissions
+    if (granted) {
+      speechToText.startSpeechToText({ language: 'es-MX' });
+    }
+  });
+}
+
+// Later, when the person is done:
+speechToText.stopRecording();
+```
+
+There is no system dialog, so the app shows its own indicator from `started` until `completed`. The session ends by itself after a pause. A failure arrives in `completed` with `success: false` and a `code`; there is no `error` event.
+
 ## Working with speech-to-text
 
 ### Creating an instance
@@ -90,6 +147,7 @@ if (!speechToText.isSupported()) {
 
 ### Conventions
 
+- Keep the proxy in a constant at the top of a module, as with text-to-speech.
 - An option is ignored, without an error, on a platform that has no equivalent. The tables say which platform each one applies to.
 - Events fire only when the app has a listener at that moment, so add the listeners before starting. An event never fires inside the call that caused it: it arrives right after the call returns.
 - An asynchronous method with no equivalent on a platform answers through its event with `{ success: false, code: 'unsupported' }`, so the app never waits for nothing.
@@ -169,7 +227,7 @@ Answers in the `languages` event with `{ success, checked, languages }`. Each la
 
 ### `downloadLanguage({ language })`
 
-Android 13+. Asks the speech service to download the on-device model for a language. `download` events report `state`: `'requested'` (Android 13, no progress), or on Android 14 and later `'scheduled'`, `'progress'` (with `progress` from 0 to 100) and `'success'`. On iOS it answers `unsupported`: the system downloads models by itself.
+Android 13+. Asks the speech service to download the on-device model for a language. `download` events report `state`: `'requested'` (Android 13, no progress), or on Android 14 and later `'scheduled'`, `'progress'` (with `progress` from 0 to 100) and `'success'`. A failed download reports `state: 'error'` with `success: false`, a `code` and a `message`. On iOS it answers `unsupported`: the system downloads models by itself.
 
 ### `getState()` (iOS)
 
@@ -296,8 +354,8 @@ The `message` values from 4.0 are unchanged.
 ```javascript
 // A voice message the app already has
 speechToText.transcribeFile(Ti.Filesystem.getFile(Ti.Filesystem.resourcesDirectory, 'message.m4a'), {
-  language: 'es-MX',
-  segments: true
+  segments: true,
+  language: 'es-MX'
 });
 
 // Audio the app produces, for example from a stream
@@ -334,9 +392,9 @@ The command is acted on as soon as a partial contains it, and `cancelRecording()
 const utterance = require('bencoding.utterance');
 
 const COMMANDS = {
-  'siguiente carta': 'next',
+  'pausa': 'pause',
   'la que sigue': 'next',
-  'pausa': 'pause'
+  'siguiente carta': 'next'
 };
 
 class VoiceCommands {
@@ -484,11 +542,16 @@ An OPPO CPH2639 with Android 16 and the Google recognizer, speaking Spanish and 
 
 ## Integration with text-to-speech
 
+The app speaks a question and listens for the answer. Start listening from the `completed` event of the speech, and only when it succeeded, so the recognizer does not hear the app's own voice and a failed speech does not open the microphone:
+
 ```javascript
 const speech = utterance.createSpeech();
 const speechToText = utterance.createSpeechToText();
 
-speech.addEventListener('completed', () => {
+speech.addEventListener('completed', (event) => {
+  if (!event.success) {
+    return;
+  }
   ensureMicrophone((granted) => {
     if (granted) {
       speechToText.startSpeechToText({ language: 'es-MX' });
