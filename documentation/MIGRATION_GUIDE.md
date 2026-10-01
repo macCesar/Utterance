@@ -1,6 +1,18 @@
 # Utterance v4.1: migration and optimization guide
 
-Upgrade notes for Utterance, from 2.x to 3.1, from 3.1 to 3.2, from 3.2 to 3.3, from 3.3 to 4.0 and from 4.0 to 4.1.
+Upgrade notes for Utterance, from 2.x to 3.1, from 3.1 to 3.2, from 3.2 to 3.3, from 3.3 to 4.0, from 4.0 to 4.1 and from 4.1 to 4.2.
+
+## Upgrading from 4.1 to 4.2
+
+4.2 adds options, events and methods for text-to-speech. Steps 2 to 4 cover what behaves differently on iOS and step 5 what changes on Android.
+
+1. Install the 4.2.0 packages (`bencoding.utterance-iphone-4.2.0.zip`, `bencoding.utterance-android-4.2.0.zip`) and set `version="4.2.0"` in `tiapp.xml`.
+2. On iOS, `startSpeaking()` without `queue: true` now cuts off what is speaking and speaks the new text, as Android always did. Before, the new call was ignored with "Already speaking". If your code relied on the old behavior, check `isSpeaking()` before the call, or pass `queue: true` to speak after the current text.
+3. On iOS, a speech that starts after the built-in speaker has been idle for more than 1.8 seconds begins 0.3 to 0.4 seconds later: the module plays 0.2 seconds of silence first, to avoid a click from the speaker starting cold. Speeches that follow each other and speech through headphones start at once. Pass `speakerWakeDelay: 0` to restore the previous timing.
+4. iOS now fires `error`, the event the guide and Android use, with `{ error, message, code }`. A listener on `error` never ran on iOS before. `errored` still fires. A failure also arrives in `completed` with `success: false` and a `code`.
+5. On Android, a call that is refused before it is queued (an empty text, an engine that has not started) now fires `completed` with `success: false` and a `code`, and then `error`, as iOS does. Before it fired only `error`, so a handler that waits for `completed` never ran.
+6. Keep the proxy in a constant at the top of a module. If `createSpeech()` runs inside a function that finishes and nothing else holds the result, JavaScript can collect the proxy and its events stop. See [text_to_speech.md](text_to_speech.md#keep-a-reference-to-the-proxy).
+7. Optional: use `wordstart` to highlight the text as it is spoken, `synthesizeToFile()` to get the audio as a WAV file, and `volume` on Android. The full list is in [text_to_speech.md](text_to_speech.md#new-in-v42).
 
 ## Upgrading from 4.0 to 4.1
 

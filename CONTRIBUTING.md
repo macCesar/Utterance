@@ -46,7 +46,7 @@ Each build writes the zip to `dist/`, and those zips are tracked in git. A rebui
 There is no automated test suite. Check a change by running it:
 
 - Copy `ios/example/app.js` and `ios/example/semantic.colors.json` into the `Resources` folder of a Titanium app that includes the module. The comment at the top of the file lists the `tiapp.xml` settings it needs. The Speak tab exercises text-to-speech and the Listen tab speech-to-text.
-- Copy one of the scripts in `tests/` into an app, run it and read the log.
+- Copy one of the scripts in `tests/` into an app, run it and read the log. `tests/test_tts_api.js` prints one PASS, FAIL or SKIP line per text-to-speech function and a summary, and its comment lists the constants that turn on the checks that need a setup of their own.
 - Use a real device for speech-to-text. The iOS Simulator has no microphone, so speech-to-text cannot work there.
 
 Say in the pull request which platforms and devices you tested on, and what you did not test.

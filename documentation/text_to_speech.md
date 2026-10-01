@@ -9,6 +9,17 @@ Utterance speaks text in Titanium apps with AVSpeechSynthesizer on iOS and TextT
 
 ## What's new
 
+### v4.2
+- `wordstart` reports each word as it is spoken, with its position in the text.
+- `volume` works on Android, `pan` and `audioUsage` are new, and `audioFocus` is new on Android.
+- `synthesizeToFile()` renders a speech to a WAV file instead of playing it, and `playSilence()` puts a pause in the queue.
+- `getState()`, `isPaused()` and `getMaxTextLength()`. On Android a text longer than the engine accepts is cut into sentences instead of failing.
+- Failures carry a `code`, with the new constants `ERROR_SYNTHESIS`, `ERROR_NOT_READY` and `ERROR_TEXT_TOO_LONG`.
+- iOS: SSML, IPA pronunciations, `marker` events, Personal Voice, `voiceschanged`, the audio session options, and `speakerWakeDelay`, a short silence before the first word when the speaker has been idle.
+- Android: `addSpeech()`, `addEarcon()` and `playEarcon()` for prerecorded audio, and pause and resume from the word where the speech stopped.
+- Behavior changes on iOS: `startSpeaking()` without `queue: true` now cuts off what is speaking, as Android always did; before, it was ignored with "Already speaking". An empty text fails with `invalid_argument`. A failure arrives in `completed` with `success: false` and a `code`, and the `error` and `errored` events fire too. With `queue: true`, `canceled` fires only for the last utterance. Events are asynchronous and fire only when a listener exists. `stopSpeaking()` also stops a paused speech.
+- Events reach your app only while JavaScript holds the proxy. See [Keep a reference to the proxy](#keep-a-reference-to-the-proxy).
+
 ### v4.0
 - No text-to-speech changes. Speech-to-text changed on both platforms; see the [changelog](../CHANGELOG.md).
 
@@ -155,13 +166,22 @@ Parameters:
 | `text`               | String  | **Required** | The text to be spoken                                                                                                             |
 | `voice`              | String  | Optional     | Voice identifier or language code                                                                                                 |
 | `rate`               | Float   | Optional     | Speech rate (0-1). Use constants for consistency                                                                                  |
-| `volume`             | Float   | iOS only     | Volume level (0-1). Default: 1.0                                                                                                  |
+| `volume`             | Float   | Optional     | Volume level (0-1). Default: 1.0. Android supports it since v4.2; a value outside the range is ignored                           |
 | `preUtteranceDelay`  | Float   | iOS only     | Delay before speaking (seconds)                                                                                                   |
 | `postUtteranceDelay` | Float   | iOS only     | Delay after speaking (seconds)                                                                                                    |
 | `pitch`              | Float   | Android only | Speech pitch. Default: 1.0                                                                                                        |
 | `voiceId`            | String  | Optional     | A voice `id` from the `voices` event (v3.2). If that voice is no longer installed, `voice` is used instead                        |
 | `bestVoice`          | Boolean | Optional     | When no `voiceId` applies, use the highest-quality installed voice for `voice`, same region first (v3.2). Default: `false`        |
 | `queue`              | Boolean | Optional     | Speak after the current utterance instead of cutting it off (v3.2). `completed` fires once, when the queue ends. Default: `false` |
+| `pan`                | Float   | Android only | Stereo position from -1 (left) to 1 (right) (v4.2). iOS ignores it                                                                |
+| `pitchMultiplier`    | Float   | Optional     | Alias of `pitch`; either name works on both platforms (v4.2)                                                                      |
+| `audioUsage`         | String  | Optional     | `media`, `assistant`, `notification`, `alarm` or `accessibility` (v4.2). See [Audio usage and focus](#audio-usage-and-focus)      |
+| `audioFocus`         | Boolean | Android only | Hold transient audio focus, lowering other audio, while the speech lasts (v4.2). Default: `false`                                |
+| `splitLongText`      | Boolean | Android only | Cut a text longer than `getMaxTextLength()` into sentences (v4.2). Default: `true`                                                |
+| `ssml`               | Boolean | iOS only     | Treat `text` as SSML (v4.2, iOS 16). On iOS 15 the call fails with `unsupported`                                                  |
+| `pronunciations`     | Array   | iOS only     | `[{ start, end, ipa }]`: ranges of `text` spoken with the given IPA (v4.2)                                                        |
+| `speakerWakeDelay`   | Float   | iOS only     | Seconds of silence before the first word when the speaker has been idle (v4.2). Default: 0.2; 0 turns it off                      |
+| `usesApplicationAudioSession`, `mixToTelephonyUplink`, `prefersAssistiveTechnologySettings` | Boolean | iOS only | The AVSpeechSynthesizer properties of the same name (v4.2) |
 
 ### Basic usage
 
@@ -576,6 +596,150 @@ const speechManager = new SpeechManager();
 
 speechManager.speak("This speech is managed with complete event handling!");
 ```
+
+## New in v4.2
+
+Options and events that this section does not mention behave as before. An option a platform has no equivalent for is ignored there.
+
+### Keep a reference to the proxy
+
+Events reach your app only while JavaScript still holds the proxy. If `createSpeech()` runs inside a function and nothing else refers to the result, JavaScript can collect the proxy once the function has finished, and its events stop arriving without any error. Keep the proxy in a constant at the top of a CommonJS module, for example `const speech = utterance.createSpeech()`, and export the functions that use it.
+
+### Words as they are spoken: `wordstart`
+
+```javascript
+speech.addEventListener('wordstart', (e) => {
+  // e = { start, end, word, utteranceId }
+  highlight(e.start, e.end)
+})
+```
+
+`start` and `end` are positions in the text you passed, also when Android splits a long text. On iOS `end` is the first position after the word; on Android the positions are UTF-16 offsets. With `ssml: true` they are offsets in the SSML string. The event fires only when a listener exists. On Android it needs Android 8 (API 26) and an engine that reports ranges; only Google's engine was tried.
+
+### Volume, pan and pitch
+
+`volume` goes from 0 to 1 on both platforms. `pan` goes from -1 (left) to 1 (right) and works on Android only; iOS ignores it. A value outside the range is ignored and logged. `pitch` and `pitchMultiplier` are the same option on both platforms.
+
+### Audio usage and focus
+
+`audioUsage` says what the speech is for: `media`, `assistant`, `notification`, `alarm` or `accessibility`. On Android it sets the engine's audio attributes. On iOS it sets the app's audio session, and only while `usesApplicationAudioSession` is `true` (the default): `media` and `alarm` use the Playback category, `assistant` and `accessibility` use Playback with the spoken audio mode, and `notification` uses Ambient.
+
+On Android, `audioFocus: true` requests transient audio focus that lowers other audio, and releases it when the speech ends.
+
+### Speaker wake on iOS: `speakerWakeDelay`
+
+The built-in speaker of an iPad powers down about two seconds after the last sound and starts cold with the next one. A cold start under the first word can click. When more than 1.8 seconds have passed since the last sound and the output is the built-in speaker, `startSpeaking()` plays silence and waits `speakerWakeDelay` seconds before the speech begins. The silence keeps playing until the speech ends.
+
+The default is 0.2 seconds. It adds 0.3 to 0.4 seconds to a speech that follows a pause (measured from the call to the voice on an iPad), and nothing to speeches that follow each other or to speech through headphones. `speakerWakeDelay: 0` turns it off. Android ignores the option.
+
+The click is intermittent, and the evidence that the wake prevents it comes from listening on one iPad (9th generation, iOS 27): no click in the ten cases with a warm speaker or a silent lead-in, against four clicks in seven cold starts without it.
+
+### Synthesizing to a file: `synthesizeToFile()`
+
+```javascript
+speech.addEventListener('synthesized', (e) => {
+  if (e.success) {
+    console.log(e.file, e.duration, e.sampleRate)
+  } else {
+    console.log(e.code, e.message)
+  }
+})
+
+speech.synthesizeToFile({
+  text: 'Hello',
+  voice: 'en-US',
+  file: Ti.Filesystem.applicationDataDirectory + 'hello.wav'
+})
+```
+
+It takes the options of `startSpeaking()` plus `file`, and plays nothing. The file is a 16 bit WAV. On iOS `file` is a path ending in `.wav`. On Android it is a path, a URL Titanium understands or a `Ti.Filesystem.File`. Without `file` the audio goes to the cache and the event says where.
+
+`synthesized` carries `success`, `file`, `duration` in seconds, `format` (`'wav'`), `sampleRate` and `utteranceId`. Android adds `channels`, `bitsPerSample` and `text`. A failure carries `success: false`, `code`, `message` and `utteranceId`. On iOS 16 and later, `markers: true` adds a `markers` array to the event with the entries described under [Markers](#ssml-pronunciations-and-markers-ios) and a `time` in milliseconds.
+
+On Android the engine has one queue, so the file is made after what is speaking, and a speech without `queue: true`, `stopSpeaking()` or `cancelSpeaking()` cancels it with the code `canceled`.
+
+### Silence: `playSilence()`
+
+`playSilence(milliseconds, { queue })` puts a pause in the queue. With `queue: true` it comes after what is speaking; without it, it replaces it. On iOS the pause is timed by the module, because the synthesizer's `preUtteranceDelay` and `postUtteranceDelay` produced no measurable delay, and it fires `started` and `completed` like a speech. On Android it fires neither and does not count as speaking.
+
+### State and text length
+
+`getState()` returns `{ speaking, paused, queued }`, where `queued` counts the utterances waiting behind the one that sounds. `isPaused()` returns a boolean. `getMaxTextLength()` returns 4000 on Android and 0 on iOS, which has no limit.
+
+On Android, `startSpeaking()` cuts a longer text into sentences and speaks the parts in order; `completed` fires once, at the end. With `splitLongText: false` the call fails with the code `text_too_long`.
+
+### Errors with a code
+
+A failure arrives in `completed` with `success: false`, `code`, `nativeCode` and `message`, and in an `error` event with `error`, `message` and `code`. On iOS an `errored` event fires as well, the name that version used before.
+
+| Code | When |
+| --- | --- |
+| `invalid_argument` | The text is missing or empty, or an option has an invalid value |
+| `unsupported` | The platform has no equivalent, or the iOS version is too old (for example SSML on iOS 15) |
+| `not_ready` | Android: the engine has not finished starting |
+| `text_too_long` | Android: the text is over the limit and `splitLongText` is `false` |
+| `synthesis`, `service_error`, `audio`, `network`, `timeout` | Android: the engine reported the matching error. `synthesis` is also the code of an iOS synthesis that produced no audio |
+| `language_unavailable` | Android: the voice data for the language is not installed yet |
+| `invalid_file` | The file of `synthesizeToFile()` cannot be written |
+| `canceled` | The work was canceled before it finished |
+| `unknown` | Anything else |
+
+The constants are `ERROR_INVALID_ARGUMENT`, `ERROR_UNSUPPORTED`, `ERROR_NOT_READY`, `ERROR_TEXT_TOO_LONG`, `ERROR_SYNTHESIS`, `ERROR_SERVICE_ERROR`, `ERROR_AUDIO`, `ERROR_NETWORK`, `ERROR_TIMEOUT`, `ERROR_LANGUAGE_UNAVAILABLE`, `ERROR_INVALID_FILE`, `ERROR_CANCELED` and `ERROR_UNKNOWN`. iOS never emits `text_too_long`. The other `ERROR_*` constants of the module belong to speech to text.
+
+### SSML, pronunciations and markers (iOS)
+
+With `ssml: true` (iOS 16), `text` is SSML:
+
+```javascript
+speech.startSpeaking({
+  ssml: true,
+  text: '<speak>Hello<break time="500ms"/>world</speak>'
+})
+```
+
+`pronunciations` speaks ranges of `text` with an IPA transcription:
+
+```javascript
+speech.startSpeaking({
+  text: 'tomato',
+  pronunciations: [{ start: 0, end: 6, ipa: 'təˈmɑːtoʊ' }]
+})
+```
+
+The `marker` event (iOS 17) reports the synthesizer's markers while it speaks, and `synthesizeToFile({ markers: true })` returns them in `synthesized` (iOS 16). Each one is `{ kind, start, end }`, with `phoneme` or `bookmark` when they apply. `kind` is `word`, `sentence`, `paragraph`, `phoneme` or `bookmark`. It is called `kind` and not `type` because Titanium replaces `type` in an event with the event name.
+
+### Personal Voice (iOS 17)
+
+```javascript
+speech.addEventListener('personalvoice', (e) => {
+  // e = { success, status, authorized }
+})
+speech.requestPersonalVoiceAuthorization()
+```
+
+`status` is `not_determined`, `denied`, `unsupported` or `authorized`; `getPersonalVoiceStatus()` returns the same value without asking. The app needs `NSPersonalVoiceUsageDescription` in the iOS `plist` of `tiapp.xml`. `requestVoices({ includeNovelty: true })` adds the novelty voices, and a Personal Voice has `personal: true`. The `voiceschanged` event fires with `{ success: true }` when the installed voices change.
+
+### Voices: new fields
+
+Both platforms return `id`, `name`, `language`, `quality` and `networkRequired`. iOS adds `gender` (`male`, `female` or `unspecified`), `novelty` and `personal`. Android adds `installed`, `latency` and `features`, and has no `gender`, `novelty` or `personal`. The Android `name` is the language followed by the engine's own name in parentheses, because Android voices have no first name. `requestVoices({ includeNetwork: true, includeNotInstalled: true })` on Android adds the voices that need the network and the ones whose data is not on the device.
+
+### Prerecorded audio (Android)
+
+`addSpeech(text, source)` plays an audio file when the text is spoken, and `addEarcon(name, source)` registers a short sound that `playEarcon(name, { queue })` plays. `source` is the name, without extension, of a file in `platform/android/res/raw`. A path does not work: the speech engine is another app and cannot open the folder of yours. The answer arrives in a `registered` event with `success`, `kind` (`speech` or `earcon`), `key` and, on failure, `code` and `message`. Playing a name nobody registered fires `error`.
+
+On iOS `addSpeech()` and `addEarcon()` answer `registered` with `code: 'unsupported'`, and `playEarcon()` answers `completed` with the same code.
+
+### Pause and resume on Android
+
+Android's `TextToSpeech` has no pause. `pauseSpeaking()` stops the speech at once, even in the middle of a word, and remembers the position of the last word. `continueSpeaking()` says the rest of the text from the start of that word, so a word cut in half is repeated whole. That needs an engine that reports word positions. Without them `paused` carries `success: false` and the code `unsupported`. `SPEECH_BOUNDARY_IMMEDIATE` and `SPEECH_BOUNDARY_WORD` are 0 and 1 on both platforms; on Android both were 0 before.
+
+### What was compiled but not tried
+
+These are in the code and were not run on a device: Android 12 and earlier; any speech engine on Android other than Google's, including whether it reports word positions; the Android engine error `ERROR_NOT_INSTALLED_YET`, which is reported as `language_unavailable`; Personal Voice with authorization granted and a voice created (the iPad used for testing was in `denied`); `voiceschanged`; phoneme markers (a `<phoneme>` tag produced none, and a `bookmark` marker arrived with the range 0 to 0); SSML and `markers: true` on iOS 15 and 16; IPA pronunciations (accepted, not listened to); the order of markers against the last audio buffer; `audioUsage` on iOS beyond the audio session category it sets. Pan on Android has not been listened to; volume at 30% was, on an OPPO.
+
+### What is left out
+
+`outputChannels` (it needs session objects Titanium cannot build), the raw stream of audio buffers (`synthesizeToFile()` covers it without sending megabytes through events), `setOnUtteranceCompletedListener` and `areDefaultsEnforced` (obsolete on Android), and the macOS-only Alex voice identifier.
 
 ## Multiple languages
 

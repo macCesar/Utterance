@@ -135,7 +135,7 @@ The same options work on both platforms where the platform has the feature: `tas
 
 ## Demo app
 
-`ios/example/app.js` and `android/example/app.js` (the two files are identical) are one demo app with two tabs. Speak reads a text aloud with the voice, language and speed you pick. Listen shows the speech-to-text API: live text while you talk, a command acted on as soon as it is heard, a level indicator, the languages that work without a connection, and the options for punctuation, on-device recognition, the search hint and expected words.
+`ios/example/app.js` and `android/example/app.js` (the two files are identical) are one demo app with two tabs. Speak reads a text aloud with the voice, language, speed and volume you pick. Queue adds the text after what is speaking, Word highlight marks each word as it is spoken, and Save to file renders the speech to a WAV file and plays it back. Listen shows the speech-to-text API: live text while you talk, a command acted on as soon as it is heard, a level indicator, the languages that work without a connection, and the options for punctuation, on-device recognition, the search hint and expected words.
 
 To run it, copy `app.js` and `semantic.colors.json` (in the same folder) to the `Resources` folder of a Titanium app that includes the module. The comment at the top of `app.js` lists what `tiapp.xml` needs. The colors follow the system's light or dark mode.
 
@@ -229,6 +229,15 @@ speechToText.startSpeechToText({ language: "es-MX" });
 | `pauseSpeaking(boundary?)` | iOS, Android* | Pause the current speech                                  |
 | `continueSpeaking()`       | iOS, Android* | Resume paused speech                                      |
 | `stopSpeaking(boundary?)`  | iOS, Android  | Stop the current speech                                   |
+| `playSilence(ms, options?)` | iOS, Android | Put a pause in the queue (v4.2)                           |
+| `synthesizeToFile(options)` | iOS, Android | Render a speech to a WAV file; `synthesized` answers (v4.2) |
+| `getState()`               | iOS, Android  | `{ speaking, paused, queued }` (v4.2)                     |
+| `isPaused()`               | iOS, Android  | Whether the speech is paused (v4.2)                       |
+| `getMaxTextLength()`       | iOS, Android  | 4000 on Android, 0 (no limit) on iOS (v4.2)               |
+| `addSpeech(text, source)`, `addEarcon(name, source)` | Android | Register prerecorded audio from `res/raw`; `registered` answers. iOS answers `unsupported` (v4.2) |
+| `playEarcon(name, options?)` | Android     | Play a registered earcon. iOS answers `unsupported` (v4.2) |
+| `warmUp()`                 | iOS           | Start the speaker with a silent utterance; it stays awake about two seconds (v4.2) |
+| `requestPersonalVoiceAuthorization()`, `getPersonalVoiceStatus()` | iOS 17 | Personal Voice permission; `personalvoice` answers (v4.2) |
 | `isSpeaking`               | iOS, Android  | Property: whether speech is in progress (both since v3.0) |
 | `isSpeaking()`             | iOS, Android  | Method: whether speech is in progress (both since v3.0)   |
 | `isSupported()`            | iOS, Android  | Whether the platform supports TTS (both since v3.0)       |
@@ -236,9 +245,9 @@ speechToText.startSpeechToText({ language: "es-MX" });
 | `requestVoices()`          | iOS, Android  | Installed voices, delivered in a `voices` event (v3.2.0)  |
 | `getVoices()`              | iOS, Android  | Basic voice list (legacy)                                 |
 
-*\*Android sends the events but does not pause or resume the speech.*
+*\*Android has no pause: it stops the speech and resumes from the last word position, which needs an engine that reports word positions. Without them the events carry `success: false`.*
 
-`startSpeaking()` options added in v3.2.0: `voiceId`, `bestVoice` and `queue`. See the [changelog](CHANGELOG.md).
+`startSpeaking()` options added in v3.2.0: `voiceId`, `bestVoice` and `queue`. Those added in v4.2.0 are in the [guide](documentation/text_to_speech.md#new-in-v42). See the [changelog](CHANGELOG.md).
 
 *On Android, `getModernVoices()`, `getModernLanguages()`, `isLanguageAvailable()`, `isNetworkRequired()`, `getEngineInfo()` and `getDiagnostics()` return data from the engine, so they wait for it while it connects. Call them after the `initialized` event, not from a click handler.*
 
@@ -307,6 +316,13 @@ Use the property or the method, whichever you prefer. Existing code keeps workin
 | `continued` | iOS, Android* | Speech synthesis resumed                                                    |
 | `stopped`   | iOS, Android  | `stopSpeaking()` stopped the speech                                         |
 | `canceled`  | iOS, Android  | Speech synthesis canceled                                                   |
+| `error`     | iOS, Android  | A failure: `{ error, message, code }`. iOS also fires `errored` (v4.2)       |
+| `wordstart` | iOS, Android  | A word is about to be spoken: `{ start, end, word, utteranceId }` (v4.2)     |
+| `synthesized` | iOS, Android | Reply to `synthesizeToFile()`: `{ success, file, duration, format, sampleRate, utteranceId }` (v4.2) |
+| `registered` | iOS, Android | Reply to `addSpeech()` and `addEarcon()`; iOS answers `unsupported` (v4.2)    |
+| `marker`    | iOS 17        | A synthesizer marker: `{ kind, start, end }` (v4.2)                          |
+| `personalvoice` | iOS 17    | Reply to `requestPersonalVoiceAuthorization()` (v4.2)                        |
+| `voiceschanged` | iOS       | The installed voices changed (v4.2)                                          |
 
 ### Speech-to-text events
 
