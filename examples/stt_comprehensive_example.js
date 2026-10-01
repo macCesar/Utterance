@@ -1,10 +1,10 @@
 /**
- * Utterance v3.0 - Comprehensive Speech-to-Text Example
+ * Utterance v4.1 - Comprehensive Speech-to-Text Example
  * Advanced demonstration of STT features (iOS and Android)
  * 
  * Features:
  * - Voice command processing
- * - Real-time transcription
+ * - Real-time transcription (partial results)
  * - Multi-language recognition
  * - Advanced error handling and recovery
  * - Permission management
@@ -17,7 +17,7 @@ const utterance = require('bencoding.utterance');
 
 class ComprehensiveSTTDemo {
   constructor() {
-    console.log('🎤 Comprehensive STT Demo - Utterance v3.0');
+    console.log('🎤 Comprehensive STT Demo - Utterance v4.1');
     console.log(`📱 Platform: ${Ti.Platform.osname} ${Ti.Platform.version} `);
 
     this.speechToText = utterance.createSpeechToText();
@@ -52,6 +52,8 @@ class ComprehensiveSTTDemo {
   setupEventListeners() {
     // STT event listeners
     this.speechToText.addEventListener('started', this.onSTTStarted.bind(this));
+    this.speechToText.addEventListener('partial', this.onSTTPartial.bind(this));
+    this.speechToText.addEventListener('canceled', this.onSTTCanceled.bind(this));
     this.speechToText.addEventListener('completed', this.onSTTCompleted.bind(this));
   }
 
@@ -67,28 +69,26 @@ class ComprehensiveSTTDemo {
     });
   }
 
+  // requestPermissions() works on both platforms and answers in the `permissions` event
   checkPermissions() {
-    if (Ti.Platform.osname === 'android') {
-      const hasAudioPermission = Ti.Android.hasPermission('android.permission.RECORD_AUDIO');
-
-      if (!hasAudioPermission) {
-        console.log('🎤 Requesting audio permission...');
-        this.requestAudioPermission();
-      } else {
-        console.log('✅ Audio permissions already granted');
-      }
+    if (this.speechToText.getPermissionStatus().granted) {
+      console.log('✅ Permissions already granted');
+      return;
     }
+    console.log('🎤 Requesting permissions...');
+    this.requestAudioPermission();
   }
 
   requestAudioPermission() {
-    Ti.Android.requestPermissions(['android.permission.RECORD_AUDIO'], (e) => {
-      if (e.success) {
-        console.log('✅ Audio permission granted');
+    this.speechToText.addEventListener('permissions', (e) => {
+      if (e.granted) {
+        console.log('✅ Permissions granted');
       } else {
-        console.error('❌ Audio permission denied');
+        console.error(`❌ Permissions denied (${e.status})`);
         this.showPermissionDenied();
       }
-    });
+    }, { once: true });
+    this.speechToText.requestPermissions();
   }
 
   // =========================================================================
@@ -112,7 +112,9 @@ class ComprehensiveSTTDemo {
     const config = {
       language: options.language || 'en-US',
       maxResults: options.maxResults || 5,
-      languageModel: options.languageModel || this.speechToText.LANGUAGE_MODEL_FREE_FORM
+      taskHint: options.taskHint || this.speechToText.TASK_HINT_DICTATION,
+      // The words the app expects: iOS uses them, and Android passes them on to a recognizer that may ignore them
+      contextualStrings: ['hello', 'time', 'date', 'weather', 'search', 'help', 'history']
     };
 
     console.log(`🎤 Starting recognition: "${hint}"`);
@@ -357,29 +359,29 @@ class ComprehensiveSTTDemo {
   // 🛡️ ADVANCED ERROR HANDLING & RECOVERY
   // =========================================================================
 
-  // Failures arrive in `completed` with success: false and a message
-  handleSTTError(message) {
+  // Failures arrive in `completed` with success: false, a `code` that does not change and a `message` for the log
+  handleSTTError(e) {
     this.errorCount++;
-    console.error(`🚨 STT Error #${this.errorCount}: ${message}`);
+    console.error(`🚨 STT Error #${this.errorCount}: ${e.code} - ${e.message}`);
 
+    const speechToText = this.speechToText;
     const errorHandlers = {
-      'Recognition error: No speech detected': () => this.handleNoMatch(),
-      'Recognition error: Network error': () => this.handleNetworkError(),
-      'Recognition error: Audio recording error': () => this.handleAudioError(),
-      'Recognition error: Recognizer busy': () => this.handleRecognizerBusy(),
-      'Microphone permission not granted': () => this.handleInsufficientPermissions(),
-      'Speech recognition permission denied': () => this.handleInsufficientPermissions()
+      [speechToText.ERROR_NO_SPEECH]: () => this.handleNoMatch(),
+      [speechToText.ERROR_NETWORK]: () => this.handleNetworkError(),
+      [speechToText.ERROR_AUDIO]: () => this.handleAudioError(),
+      [speechToText.ERROR_BUSY]: () => this.handleRecognizerBusy(),
+      [speechToText.ERROR_PERMISSION_DENIED]: () => this.handleInsufficientPermissions()
     };
 
-    const handler = errorHandlers[message];
+    const handler = errorHandlers[e.code];
     if (handler) {
       handler();
     } else {
-      this.handleUnknownError(message);
+      this.handleUnknownError(e.message);
     }
 
     // Auto-retry when nothing was heard
-    if (message === 'Recognition error: No speech detected' && this.continuousMode && this.errorCount < 3) {
+    if (e.code === speechToText.ERROR_NO_SPEECH && this.continuousMode && this.errorCount < 3) {
       setTimeout(() => {
         console.log('🔄 Auto-retrying after error...');
         this.startListening({
@@ -441,13 +443,29 @@ class ComprehensiveSTTDemo {
     this.errorCount = 0; // Reset error count on successful start
   }
 
+  // The text so far. A command is acted on as soon as a partial contains it, and cancelRecording() drops the session
+  onSTTPartial(e) {
+    console.log('… so far:', e.text);
+    if (/\b(stop|quit|exit)\b/i.test(e.text)) {
+      clearTimeout(this.stopTimer);
+      this.speechToText.cancelRecording();
+      this.handleStopCommand(e.text.toLowerCase());
+    }
+  }
+
+  onSTTCanceled() {
+    console.log('✋ STT canceled');
+    clearTimeout(this.stopTimer);
+    this.isListening = false;
+  }
+
   onSTTCompleted(e) {
     console.log('✅ STT Completed');
     clearTimeout(this.stopTimer);
     this.isListening = false;
 
     if (!e.success) {
-      this.handleSTTError(e.message);
+      this.handleSTTError(e);
     } else if (e.detectedInput) {
       console.log('📝 Best result:', e.text, '| alternatives:', e.words);
       this.processVoiceCommand(e.text);
@@ -597,6 +615,8 @@ class ComprehensiveSTTDemo {
     // Remove event listeners
     if (this.speechToText) {
       this.speechToText.removeEventListener('started', this.onSTTStarted);
+      this.speechToText.removeEventListener('partial', this.onSTTPartial);
+      this.speechToText.removeEventListener('canceled', this.onSTTCanceled);
       this.speechToText.removeEventListener('completed', this.onSTTCompleted);
     }
 

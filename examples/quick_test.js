@@ -1,5 +1,5 @@
 /**
- * Quick Utterance v3.0 Test - Verify both TTS and STT work
+ * Quick Utterance v4.1 Test - Verify both TTS and STT work
  */
 
 const utterance = require('bencoding.utterance');
@@ -15,7 +15,7 @@ console.log('TTS Supported:', speech.isSupported());
 if (speech.isSupported()) {
   speech.addEventListener('completed', () => console.log('✅ TTS Done'));
   speech.startSpeaking({
-    text: "Testing Utterance 3.0",
+    text: "Testing Utterance 4.1",
     rate: 0.5
   });
 }
@@ -26,20 +26,27 @@ const stt = utterance.createSpeechToText();
 console.log('STT Supported:', stt.isSupported());
 
 if (stt.isSupported()) {
+  stt.addEventListener('partial', (e) => console.log('… so far:', e.text));
+
   stt.addEventListener('completed', (e) => {
+    if (!e.success) {
+      console.log('❌ STT failed:', e.code, e.message);
+      return;
+    }
     console.log('✅ STT Result:', e.text);
   });
 
-  // On Android the microphone permission must be granted first; iOS asks on the first call
   const start = () => {
     console.log("Say 'hello world'");
     stt.startSpeechToText({ language: 'en-US' });
     setTimeout(() => stt.stopRecording(), 6000);
   };
 
-  if (Ti.Platform.osname === 'android' && !Ti.Android.hasPermission('android.permission.RECORD_AUDIO')) {
-    Ti.Android.requestPermissions(['android.permission.RECORD_AUDIO'], (e) => e.success && start());
-  } else {
+  // requestPermissions() works on both platforms; the permissions event answers
+  if (stt.getPermissionStatus().granted) {
     start();
+  } else {
+    stt.addEventListener('permissions', (e) => e.granted && start(), { once: true });
+    stt.requestPermissions();
   }
 }
