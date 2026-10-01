@@ -27,7 +27,6 @@ The maintainer builds with Titanium CLI 9.1, Xcode 27 and JDK 21.
 - `android/`: the Android module (Java) and its `dist/` zip.
 - `ios/example/` and `android/example/`: the demo app, `app.js` and `semantic.colors.json`. The two folders hold identical files.
 - `documentation/`: the text-to-speech, speech-to-text and migration guides.
-- `documentation/proposals/`: changes that are planned but not implemented.
 - `examples/`: smaller scripts for one feature each.
 - `tests/`: console diagnostics.
 - `CHANGELOG.md`: what changed in each version.
