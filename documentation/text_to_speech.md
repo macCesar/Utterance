@@ -340,7 +340,7 @@ pauseButton.addEventListener('click', () => {
 
 ### Silence: `playSilence()`
 
-`playSilence(milliseconds, { queue })` puts a pause in the queue. With `queue: true` it comes after what is speaking; without it, it replaces it. On iOS the pause is timed by the module, and it fires `started` (with an empty `text`) and `completed` like a speech. On Android it fires neither and does not count as speaking.
+`playSilence(milliseconds, { queue })` puts a pause in the queue. With `queue: true` it comes after what is speaking; without it, it replaces it. On iOS the pause is timed by the module. On both platforms it fires `started` with an empty `text`, like a speech, and `completed` fires once, when the queue ends. On an Android 16 phone, a queue of speech, silence, speech, silence and speech fired five `started` events and one `completed`.
 
 ```javascript
 speech.startSpeaking({ text: 'Ready.', voice: 'en-US' });
@@ -708,7 +708,6 @@ Speech recognition and synthesis share one microphone and one speaker, so stop l
 | Earcons and prerecorded audio       | `unsupported`                                         | Yes                                                                            |
 | `speakerWakeDelay`, `warmUp()`      | Yes                                                   | Ignored. The engine warms up on its own                                        |
 | `stopSpeaking()`                    | Fires `stopped`, then `canceled`                      | Fires `stopped`. `cancelSpeaking()` fires `canceled`                           |
-| `playSilence()`                     | Fires `started` and `completed`                       | Fires neither and does not count as speaking                                   |
 | `initialized` event, engine methods | No                                                    | Yes                                                                            |
 
 ## Performance and the speaker

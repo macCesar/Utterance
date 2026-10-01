@@ -203,7 +203,7 @@ Use it when the app already has what it needs from the partial text, such as a v
 
 ### `transcribeFile(file, options?)`
 
-Transcribes a recorded file, such as a voice message, without the microphone. `file` is a `Ti.Filesystem.File`, a path, a `file://` or `app://` URL (a path with no scheme is relative to `Resources`), or a `Ti.Blob`. The options are the same as for `startSpeechToText()`, except the ones about the microphone. `started`, `partial`, `speechstart`, `speechend` and `completed` fire as in a live session, with `source: 'file'`.
+Transcribes a recorded file, such as a voice message, without the microphone. `file` is a `Ti.Filesystem.File`, a path, a `file://` or `app://` URL (a path with no scheme is relative to `Resources`), or a `Ti.Blob`. The options are the same as for `startSpeechToText()`, except the ones about the microphone. `started`, `partial`, `speechstart`, `speechend` and `completed` fire as in a live session, with `source: 'file'` (readable on iOS only).
 
 A file that does not exist or cannot be read fails with `invalid_file`. On Android it needs Android 13, and it decodes with `MediaExtractor`, so it reads what the device can decode (wav, m4a and mp3 were tried).
 
@@ -241,7 +241,7 @@ Prepares a custom language model. The asset is the file that Apple's `SFCustomLa
 
 ### `started`
 
-Fires when the audio is flowing. Use it to change the button or show a level indicator. Payload: `{ success: true, language, source }`.
+Fires when the audio is flowing. Use it to change the button or show a level indicator. Payload: `{ success: true, language, source }`, with `source` readable on iOS only (see [`completed`](#completed)).
 
 ### `partial`
 
@@ -288,7 +288,7 @@ Fires once per session, with a transcript or a failure. Failures arrive here: th
 | `detectedInput`              | Boolean        | Whether anything was recognized                                                                                                                                                                                                                                                                                         |
 | `confidence`                 | Number         | iOS: the average over the segments of the best transcription. Android: the recognizer's score for it. On one device the Google recognizer returned the same value (0.948) for every Spanish result, and 0 for audio sent with `transcribeFile()` or `appendAudio()`, so do not rely on it there                         |
 | `language`                   | String         | The language of the session                                                                                                                                                                                                                                                                                             |
-| `source`                     | String         | `'microphone'`, `'buffer'` or `'file'`                                                                                                                                                                                                                                                                                  |
+| `source`                     | String         | `'microphone'`, `'buffer'` or `'file'`. iOS only: Titanium replaces the `source` key of every Android event with the proxy that fired it, so on Android `event.source` is that object. Keep track of what you started |
 | `segments`                   | Array          | Only with `segments: true`. One entry per word: `{ text, timestamp, duration, confidence, start, end }`. `timestamp` and `duration` are in seconds, `start` and `end` are character positions in `text`. Android has no `duration`, gives `confidence` as a level divided by 5 and adds `confidenceLevel` and `rawText` |
 | `alternatives`               | Array          | Only with `alternatives: true`. `{ start, end, alternatives }` for each part of the text that has other readings                                                                                                                                                                                                        |
 | `metadata`                   | Object         | iOS, only with `metadata: true`: `{ speakingRate, averagePauseDuration, speechStartTimestamp, speechDuration }`                                                                                                                                                                                                         |
@@ -298,7 +298,7 @@ Fires once per session, with a transcript or a failure. Failures arrive here: th
 | `code`                       | String         | Only with `success: false`. See [Error codes](#error-codes)                                                                                                                                                                                                                                                             |
 | `nativeCode`, `nativeDomain` | Number, String | Only with `success: false`: the platform's own error (`nativeDomain` is iOS only)                                                                                                                                                                                                                                       |
 
-On failure the payload is `{ success: false, message, code, detectedInput: false, wordCount: 0, words: [] }` plus `language`, `source` and the native error when there is one.
+On failure the payload is `{ success: false, message, code, detectedInput: false, wordCount: 0, words: [] }` plus `language`, `source` (iOS only) and the native error when there is one.
 
 ```javascript
 speechToText.addEventListener('started', () => {
@@ -349,7 +349,7 @@ The `message` values from 4.0 are unchanged.
 
 ## Audio that does not come from the microphone
 
-`transcribeFile()` and `audioSource: 'buffer'` work on both platforms; on Android they need Android 13. The sources go through the same options and events as a live session, with `source` telling them apart.
+`transcribeFile()` and `audioSource: 'buffer'` work on both platforms; on Android they need Android 13. The sources go through the same options and events as a live session, with `source` telling them apart on iOS. On Android the app already knows which one it started.
 
 ```javascript
 // A voice message the app already has

@@ -12,6 +12,7 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 - Documentation: the guide gave the iOS values of the rate constants of version 2 (0.3, 0.45, 0.75 and 0.9 instead of 0.25, 0.35, 0.55 and 0.65), listed `pitch` as Android only although iOS accepts it from 0.5 to 2, and described `rate` as 0 to 1 on both platforms (Android accepts 0.1 to 3).
 - Documentation: `voice` takes only language codes on iOS, so `voice: voice.name` spoke with the default voice there; the examples now pass `voiceId`. `getVoices()` is not exposed by either module and was listed as a legacy call. `pauseSpeaking()` and `stopSpeaking()` take the `SPEECH_BOUNDARY_*` constants, not strings. The `quality > 300` filters worked only on Android, because `getModernVoices()` returns 1 to 3 on iOS.
 - Documentation: the migration guide listed `cancelSpeaking()` and the `language` option of `startSpeaking()` for iOS, which has neither, gave `getModernVoices()` the same fields on both platforms, and told iOS apps to wait for an `initialized` event that only Android fires. The speech-to-text guide left out the `error` state of the `download` event.
+- Documentation: `playSilence()` also fires `started` on Android, with an empty `text`; the guide said it fired no events there. The `source` field of the speech-to-text events can be read on iOS only, because Titanium replaces it with the proxy in Android events; the guide gave it as a string on both platforms.
 
 ## [4.2.0] - 2026-10-01
 
