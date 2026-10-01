@@ -88,6 +88,7 @@ const state = {
   speakLanguage: 0,
   listenLanguage: 0,
   rate: 2,
+  volume: 100,
   speaking: false,
   requested: false,
   listening: false,
@@ -374,14 +375,61 @@ rateSlider.addEventListener('change', (e) => {
 rateRow.add(rateSlider)
 voiceCard.add(rateRow)
 
-const speakButton = bigButton('Speak', () => (state.speaking ? speech.stopSpeaking() : speak(textArea.value, speakLanguages[state.speakLanguage].code, true)))
+const volumeRow = Ti.UI.createView({ height: Ti.UI.SIZE, left: 18, right: 18, top: 4, layout: 'vertical' })
+const volumeTitle = Ti.UI.createView({ height: 24 })
+volumeTitle.add(label('Volume', { font: { fontSize: 15 } }))
+const volumeName = label('100%', { left: null, right: 0, color: C.accent2, font: { fontSize: 14, fontWeight: 'bold' } })
+volumeTitle.add(volumeName)
+volumeRow.add(volumeTitle)
+const volumeSlider = Ti.UI.createSlider({ min: 0, max: 100, value: state.volume, height: Ti.UI.SIZE, left: 0, right: 0, top: 6, bottom: 4, tintColor: C.accent, trackTintColor: C.surface2 })
+volumeSlider.addEventListener('change', (e) => {
+  state.volume = Math.round(e.value)
+  volumeName.text = state.volume + '%'
+})
+volumeRow.add(volumeSlider)
+voiceCard.add(volumeRow)
+
+const speakButton = bigButton('Speak', () => (state.speaking && !speakToggles.values.queue ? speech.stopSpeaking() : speak(textArea.value, speakLanguages[state.speakLanguage].code, true)))
 voiceCard.add(speakButton.view)
 speakPage.add(voiceCard)
+
+// Queue adds the text after what is speaking; Word highlight marks each word as it is spoken; Save to file renders the
+// speech to a WAV file and plays that file back instead of speaking.
+const speakOptionsCard = card('Options')
+const speakToggles = toggleRow([
+  { key: 'queue', name: 'Queue' },
+  { key: 'highlight', name: 'Word highlight' },
+  { key: 'file', name: 'Save to file' }
+])
+speakOptionsCard.add(speakToggles.view)
+speakOptionsCard.add(spacer(14))
+speakPage.add(speakOptionsCard)
+
+const karaokeCard = card('Now saying')
+karaokeCard.visible = false
+karaokeCard.height = 0
+const karaoke = label('', { left: 18, right: 18, top: 10, bottom: 18, height: Ti.UI.SIZE, font: { fontSize: 20 } })
+karaokeCard.add(karaoke)
+speakPage.add(karaokeCard)
+
+function showKaraoke(text) {
+  karaoke.text = text
+  karaokeCard.height = Ti.UI.SIZE
+  karaokeCard.visible = true
+}
+
+function hideKaraoke() {
+  karaokeCard.visible = false
+  karaokeCard.height = 0
+}
 
 const speakStatus = label('', { left: 0, color: C.muted, font: { fontSize: 13 } })
 const speakStatusRow = Ti.UI.createView({ height: Ti.UI.SIZE, left: 34, right: 34, top: 14 })
 speakStatusRow.add(speakStatus)
 speakPage.add(speakStatusRow)
+const stopLink = label('Stop', { left: 34, top: 8, color: C.accent, font: { fontSize: 14, fontWeight: 'bold' }, visible: false, height: 0 })
+stopLink.addEventListener('click', () => speech.stopSpeaking())
+speakPage.add(stopLink)
 speakPage.add(spacer())
 
 speakPage.addEventListener('singletap', (e) => {
@@ -391,8 +439,11 @@ speakPage.addEventListener('singletap', (e) => {
 })
 
 function setSpeaking(on, message) {
+  const queueing = on && speakToggles.values.queue
   state.speaking = on
-  speakButton.set(on ? 'Stop' : 'Speak', on)
+  speakButton.set(on ? (queueing ? 'Add to queue' : 'Stop') : 'Speak', on && !queueing)
+  stopLink.visible = queueing
+  stopLink.height = queueing ? Ti.UI.SIZE : 0
   speakStatus.text = message || ''
 }
 
@@ -405,13 +456,24 @@ function speak(text, code, fromSpeakTab) {
     stopListening()
   }
   speakNotice.hide()
-  state.requested = true
-  speech.startSpeaking({
+  const options = {
     text,
     voice: code,
     bestVoice: fromSpeakTab ? bestSwitch.value : true,
     rate: speech[RATES[fromSpeakTab ? state.rate : 2].key]
-  })
+  }
+  if (fromSpeakTab && speakToggles.values.file) {
+    speakStatus.text = 'Saving to a file...'
+    options.file = Ti.Filesystem.applicationDataDirectory + 'utterance-' + Date.now() + '.wav'
+    speech.synthesizeToFile(options)
+    return
+  }
+  state.requested = true
+  if (fromSpeakTab) {
+    options.volume = state.volume / 100
+    options.queue = speakToggles.values.queue
+  }
+  speech.startSpeaking(options)
 }
 
 if (!speech.isSupported()) {
@@ -444,14 +506,48 @@ setTimeout(() => {
   }
 }, 8000)
 // Android fires `started` for its own warm-up utterance too, so only speech this app asked for counts
-speech.addEventListener('started', () => state.requested && setSpeaking(true, 'Speaking...'))
+speech.addEventListener('started', (e) => {
+  if (!state.requested) {
+    return
+  }
+  setSpeaking(true, 'Speaking...')
+  if (speakToggles.values.highlight) {
+    showKaraoke(e.text)
+  }
+})
 speech.addEventListener('completed', () => {
   state.requested = false
+  hideKaraoke()
   setSpeaking(false, 'Done.')
+})
+// `start` and `end` are positions in the text of the utterance that is speaking
+speech.addEventListener('wordstart', (e) => {
+  if (!state.requested || !speakToggles.values.highlight) {
+    return
+  }
+  karaoke.attributedString = Ti.UI.createAttributedString({
+    text: karaoke.text,
+    attributes: [{ type: Ti.UI.ATTRIBUTE_BACKGROUND_COLOR, value: C.accent2, range: [e.start, e.end - e.start] }]
+  })
+})
+speech.addEventListener('synthesized', (e) => {
+  if (!e.success) {
+    speakStatus.text = ''
+    speakNotice.show('Could not save the speech: ' + (e.message || e.code))
+    return
+  }
+  speakStatus.text = 'Saved ' + e.duration.toFixed(1) + ' s at ' + e.sampleRate + ' Hz. Playing it back...'
+  const sound = Ti.Media.createSound({ url: e.file.indexOf('file') === 0 ? e.file : 'file://' + e.file })
+  sound.addEventListener('complete', () => {
+    sound.release()
+    speakStatus.text = 'Done.'
+  })
+  sound.play()
 })
 // stopSpeaking() fires `stopped` (iOS also fires `canceled`); cancelSpeaking() fires `canceled`
 const onSpeechStopped = () => {
   state.requested = false
+  hideKaraoke()
   setSpeaking(false, 'Stopped.')
 }
 speech.addEventListener('stopped', onSpeechStopped)
