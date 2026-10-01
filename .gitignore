@@ -28,3 +28,7 @@ project.xcworkspace/
 /screen-capture*
 /Captura*
 android/.settings/
+
+# Local working notes
+/docs/project/
+/HANDOFF.md
