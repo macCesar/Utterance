@@ -26,18 +26,34 @@
 }
 
 @property(nonatomic, strong) SFSpeechRecognizer *speechRecognizer;
-@property(nonatomic, strong) SFSpeechAudioBufferRecognitionRequest *recognitionRequest;
+@property(nonatomic, strong) SFSpeechRecognitionRequest *recognitionRequest;
 @property(nonatomic, strong) SFSpeechRecognitionTask *recognitionTask;
 @property(nonatomic, strong) AVAudioEngine *audioEngine;
 @property(nonatomic, strong) NSTimer *endOfSpeechTimer;
+@property(nonatomic, strong) NSTimer *levelTimer;
 
 // Public API Methods (matching Android API for consistency)
 - (NSNumber *)isSupported:(id)unused;
 - (void)startSpeechToText:(id)args;
 - (void)stopRecording:(id)unused;
+- (void)cancelRecording:(id)unused;
 
-// Permission handling
-- (void)requestPermissions:(void (^)(BOOL granted))completion;
+// Availability and permissions
+- (NSNumber *)isAvailable:(id)args;
+- (NSNumber *)supportsOnDevice:(id)args;
+- (NSDictionary *)getPermissionStatus:(id)unused;
+- (void)requestPermissions:(id)unused;
+- (void)requestSupportedLanguages:(id)unused;
+- (void)downloadLanguage:(id)args;
+
+// Audio that does not come from the microphone
+- (void)transcribeFile:(id)args;
+- (void)appendAudio:(id)args;
+- (NSDictionary *)getNativeAudioFormat:(id)unused;
+
+// iOS only
+- (NSDictionary *)getState:(id)unused;
+- (void)prepareCustomLanguageModel:(id)args;
 
 // Constants for cross-platform compatibility
 - (NSString *)LANGUAGE_MODEL_FREE_FORM;
