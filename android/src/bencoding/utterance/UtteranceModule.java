@@ -26,7 +26,7 @@ public class UtteranceModule extends KrollModule {
 
     // Module version
     @Kroll.constant
-    public static final String MODULE_VERSION = "4.0.0";
+    public static final String MODULE_VERSION = "4.1.0";
 
     // Minimum API levels for features
     @Kroll.constant

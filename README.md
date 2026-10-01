@@ -1,9 +1,9 @@
-# Utterance v4.0
+# Utterance v4.1
 ### Text-to-speech and speech-to-text for Titanium
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://github.com/macCesar/Utterance)
 
-Utterance v4.0 requires Titanium SDK 13.0.0 on both platforms. Since v3.2 it keeps text-to-speech off Android's main thread and lets you list the installed voices, pick one, or let the module choose the best one for a language.
+Utterance v4.1 requires Titanium SDK 13.0.0 on both platforms. Since v3.2 it keeps text-to-speech off Android's main thread and lets you list the installed voices, pick one, or let the module choose the best one for a language.
 
 ## Changelog
 

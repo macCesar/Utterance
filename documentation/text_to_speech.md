@@ -1,4 +1,4 @@
-# Utterance v4.0: text to speech
+# Utterance v4.1: text to speech
 
 Utterance speaks text in Titanium apps with AVSpeechSynthesizer on iOS and TextToSpeech on Android, using the same API and rate values on both.
 

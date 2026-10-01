@@ -4,6 +4,8 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-10-01
+
 ### Added
 - Both platforms: `taskHint`, `contextualStrings`, `onDevice` (`true`, `false` or `'prefer'`), `punctuation`, `partialResults` and `audioLevelInterval` options for `startSpeechToText()`, and `segments` and `alternatives` to add detail to `completed`. An option a platform has no equivalent for is ignored there.
 - Both platforms: `partial`, `speechstart`, `speechend`, `audiolevel` and `canceled` events, and `cancelRecording()`, which drops a session without firing `completed`.
@@ -96,7 +98,8 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 - `isSpeaking` works as a property and as `isSpeaking()` on both platforms.
 - Built for current iOS and Android versions.
 
-[Unreleased]: https://github.com/macCesar/Utterance/compare/v4.0.0...HEAD
+[Unreleased]: https://github.com/macCesar/Utterance/compare/v4.1.0...HEAD
+[4.1.0]: https://github.com/macCesar/Utterance/compare/v4.0.0...v4.1.0
 [4.0.0]: https://github.com/macCesar/Utterance/compare/v3.3.0...v4.0.0
 [3.3.0]: https://github.com/macCesar/Utterance/compare/v3.2.0...v3.3.0
 [3.2.0]: https://github.com/macCesar/Utterance/releases/tag/v3.2.0
