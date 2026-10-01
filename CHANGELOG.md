@@ -24,21 +24,19 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 - Text-to-speech, iOS: a failure arrives in `completed` with `success: false` and a `code`, and the `error` event fires with it, as on Android. `errored` still fires.
 - Text-to-speech, iOS: with `queue: true`, `canceled` fires only for the last utterance. Events fire right after the call that causes them returns and only when a listener exists. `stopSpeaking()` also stops a paused speech.
 - Text-to-speech, iOS: after the built-in speaker has been idle for more than 1.8 seconds, `startSpeaking()` waits 0.2 seconds before the first word. It adds 0.3 to 0.4 seconds to a speech that follows a pause and nothing otherwise; `speakerWakeDelay: 0` restores the previous timing.
-- Text-to-speech, iOS: the `duration` in `synthesized` is in seconds, as on Android and in speech to text.
 - Text-to-speech, Android: `SPEECH_BOUNDARY_IMMEDIATE` and `SPEECH_BOUNDARY_WORD` are 0 and 1. Both were 0.
 - Text-to-speech, Android: the `error` event carries the message in `error`, the field the guide has always read. A call refused before it is queued (an empty text, an engine that has not started) fires `completed` with `success: false` and the `code`, as iOS does, and then `error`. Before it fired only `error`.
 - Text-to-speech, both platforms: the text and the voice in the events of a queued utterance are its own. They were those of the last utterance queued.
 
 ### Fixed
 - Text-to-speech, iOS: `stopped` on a proxy that had never spoken raised an exception, and `continueSpeaking()` left `speaking` true when nothing was paused.
-- Text-to-speech, Android: `volume` was ignored although the guide listed it.
 - Documentation: events reach the app only while JavaScript holds the proxy. The guide now says to keep it in a module level constant.
 
 ### Testing
 - Text-to-speech, iOS: an iPad (9th generation) with iOS 27, speaking Spanish. A probe app logged 63 `PROBE` lines: 48 checks passed and none failed. The `speakerWakeDelay` default was chosen by listening on that iPad (ten cases with a warm speaker or a silent lead-in without a click, four clicks in seven cold starts) and by the delay measured from the call to the voice: 0.3 to 0.4 seconds with 0.2 (293 ms in the lab, 384 ms in the test).
 - Text-to-speech, Android: an OPPO CPH2639 with Android 16 and Google's engine. An earlier probe app ran 49 checks and none failed. `tests/test_tts_api.js` ran 30 checks that passed, none that failed and 12 skipped (the iOS only checks and the long text); a first run had four failures, two of them the refused calls that fired no `completed`, which the change above fixed. In the demo app, Queue, Word highlight and Save to file worked when tapped. The demo's Volume slider at 30% made the voice quieter, and the emulated pause stopped for the two seconds asked and said the cut word again on resume. Pan was not listened to.
 - Text-to-speech, iOS: twelve `startSpeaking()` calls chained by `completed` delivered all twelve events when the app held the proxy in a global (2 of 2 runs), and seven `synthesizeToFile()` calls chained by `synthesized` delivered all seven with a JS timer pending (6 of 6 runs).
-- iPad (9th generation, iOS 27) and the iOS Simulator: `tests/test_tts_api.js` ran 34 checks that passed, none that failed and 8 skipped (the Android only checks and the one that opens a system prompt). The new controls of the demo app's Speak tab (Volume, Queue, Word highlight and Save to file) worked when tapped on the iPad; they were not tried on Android.
+- iPad (9th generation, iOS 27) and the iOS Simulator: `tests/test_tts_api.js` ran 34 checks that passed, none that failed and 8 skipped (the Android only checks and the one that opens a system prompt). The new controls of the demo app's Speak tab (Volume, Queue, Word highlight and Save to file) worked when tapped on the iPad.
 - Not tried on either platform: Android 12 and earlier; any speech engine on Android other than Google's, including whether it reports word positions; the Android engine error `ERROR_NOT_INSTALLED_YET`; Personal Voice with authorization granted and a voice created; `voiceschanged`; phoneme markers (a `<phoneme>` tag produced none and a `bookmark` arrived with the range 0 to 0); SSML and `markers: true` on iOS 15 and 16; IPA pronunciations (accepted, not listened to); the order of markers against the last audio buffer; pan on Android.
 
 ## [4.1.0] - 2026-10-01
