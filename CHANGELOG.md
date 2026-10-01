@@ -4,6 +4,9 @@ All notable changes to Utterance are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Added
+- The demo apps have a third tab, More, with pause and resume, silence in the queue, pitch, pan (Android), `audioUsage` and `audioFocus`, SSML, IPA pronunciations and the speaker wake (iOS), and a transcription of a file that the app saves with `synthesizeToFile()`. The Listen tab has options for a quick end, the top three results, word timing and (iOS) speech detail, shows `isAvailable()` and `supportsOnDevice()`, and reacts to `speechstart` and `speechend`.
+
 ### Changed
 - Documentation: the text-to-speech guide and the README were rewritten around how a speech works, with recipes that were run on the iOS simulator: voice picker, word highlight, saving and playing a file, queue with silence, pause and resume, and recovery from a failure by `code`.
 - Documentation: the speech-to-text guide has a contents list and a quick start, and its text-to-speech example starts listening only after a speech that succeeded. The migration guide lists every behavior change of 4.2 and groups the 2.x steps under one heading.

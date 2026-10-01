@@ -95,7 +95,11 @@ const state = {
   starting: false,
   stopping: false,
   seconds: 0,
-  ticker: null
+  ticker: null,
+  // Who asked the speech proxy to talk, so the Speak and More tabs do not react to each other's events
+  owner: 'speak',
+  moreJob: null,
+  transcribing: false
 }
 
 // =============================================================================
@@ -264,8 +268,11 @@ win.add(header)
 
 const tabs = Ti.UI.createView({ height: 46, left: 16, right: 16, top: 16, backgroundColor: C.surface, borderRadius: 23 })
 const tabBody = Ti.UI.createView({ left: 3, right: 3, top: 3, bottom: 3 })
-const segments = ['Speak', 'Listen'].map((title, index) => {
-  const view = Ti.UI.createView({ width: '50%', left: index === 0 ? '0%' : '50%', borderRadius: 20 })
+const TAB_TITLES = ['Speak', 'Listen', 'More']
+const percent = (value) => `${Math.round(value * 100) / 100}%`
+const segments = TAB_TITLES.map((title, index) => {
+  const width = 100 / TAB_TITLES.length
+  const view = Ti.UI.createView({ width: percent(width), left: percent(index * width), borderRadius: 20 })
   const on = Ti.UI.createView({ backgroundGradient: gradient(), borderRadius: 20, opacity: index === 0 ? 1 : 0, touchEnabled: false })
   const text = label(title, { left: null, font: { fontSize: 14, fontWeight: 'bold' }, color: index === 0 ? '#FFFFFF' : C.muted, touchEnabled: false })
   view.add(on)
@@ -282,14 +289,21 @@ win.add(pages)
 
 const speakPage = page()
 const listenPage = page()
+const morePage = page()
 listenPage.visible = false
+morePage.visible = false
 pages.add(speakPage)
 pages.add(listenPage)
+pages.add(morePage)
 
 function showPage(index) {
   state.page = index
   speakPage.visible = index === 0
   listenPage.visible = index === 1
+  morePage.visible = index === 2
+  if (index === 2) {
+    refreshState()
+  }
   segments.forEach((segment, i) => {
     segment.on.opacity = i === index ? 1 : 0
     segment.text.color = i === index ? '#FFFFFF' : C.muted
@@ -456,6 +470,8 @@ function speak(text, code, fromSpeakTab) {
     stopListening()
   }
   speakNotice.hide()
+  releaseMore()
+  state.owner = 'speak'
   const options = {
     text,
     voice: code,
@@ -500,6 +516,8 @@ speech.addEventListener('voices', (e) => {
   }
 })
 speech.requestVoices()
+// iOS fires `voiceschanged` when the person installs or removes a voice in Settings
+speech.addEventListener('voiceschanged', () => speech.requestVoices())
 setTimeout(() => {
   if (!voicesReceived) {
     showSpeakLanguages(LANGUAGES, 'The installed voices could not be listed, so every language is listed.')
@@ -516,6 +534,9 @@ speech.addEventListener('started', (e) => {
   }
 })
 speech.addEventListener('completed', () => {
+  if (state.owner !== 'speak') {
+    return
+  }
   state.requested = false
   hideKaraoke()
   setSpeaking(false, 'Done.')
@@ -531,6 +552,9 @@ speech.addEventListener('wordstart', (e) => {
   })
 })
 speech.addEventListener('synthesized', (e) => {
+  if (state.owner !== 'speak') {
+    return
+  }
   if (!e.success) {
     speakStatus.text = ''
     speakNotice.show('Could not save the speech: ' + (e.message || e.code))
@@ -546,6 +570,9 @@ speech.addEventListener('synthesized', (e) => {
 })
 // stopSpeaking() fires `stopped` (iOS also fires `canceled`); cancelSpeaking() fires `canceled`
 const onSpeechStopped = () => {
+  if (state.owner !== 'speak') {
+    return
+  }
   state.requested = false
   hideKaraoke()
   setSpeaking(false, 'Stopped.')
@@ -553,6 +580,9 @@ const onSpeechStopped = () => {
 speech.addEventListener('stopped', onSpeechStopped)
 speech.addEventListener('canceled', onSpeechStopped)
 speech.addEventListener('error', (e) => {
+  if (state.owner !== 'speak') {
+    return
+  }
   state.requested = false
   setSpeaking(false, '')
   speakNotice.show(e.error || e.message || 'The device could not speak this text.')
@@ -593,9 +623,13 @@ const listenChips = chipRow(LANGUAGES, 0, (index) => {
   }
   state.listenLanguage = index
   listenChips.select(index)
+  showAvailability()
 })
 const languageCard = card('Language')
 languageCard.add(listenChips.view)
+// isAvailable() and supportsOnDevice() answer for one language on iOS; Android ignores the language
+const availabilityLabel = label('', { left: 18, right: 18, top: 10, height: Ti.UI.SIZE, color: C.muted, font: { fontSize: 12 } })
+languageCard.add(availabilityLabel)
 languageCard.add(spacer(14))
 languageCard.top = 22
 listenPage.add(languageCard)
@@ -605,8 +639,11 @@ const optionToggles = toggleRow([
   { key: 'punctuation', name: 'Punctuation' },
   { key: 'onDevice', name: 'On device' },
   { key: 'search', name: 'Search hint' },
-  { key: 'words', name: 'Expected words' }
-])
+  { key: 'words', name: 'Expected words' },
+  { key: 'quick', name: 'Quick end' },
+  { key: 'few', name: 'Top 3 only' },
+  { key: 'timing', name: 'Word timing' }
+].concat(IOS ? [{ key: 'detail', name: 'Speech detail' }] : []))
 const optionsCard = card('Options')
 optionsCard.add(optionToggles.view)
 optionsCard.add(spacer(14))
@@ -623,6 +660,9 @@ transcriptCard.add(confidenceLabel)
 transcriptCard.add(confidenceTrack)
 const alternativesRow = Ti.UI.createView({ layout: 'horizontal', height: Ti.UI.SIZE, left: 18, right: 18, top: 6 })
 transcriptCard.add(alternativesRow)
+// Word timing (`segments`) and speech detail (`metadata`) show here when their options are on
+const detailLabel = label('', { left: 18, right: 18, top: 10, height: Ti.UI.SIZE, color: C.muted, font: { fontSize: 12 } })
+transcriptCard.add(detailLabel)
 
 const readBack = Ti.UI.createView({ height: 44, left: 18, right: 18, top: 16, bottom: 18, borderRadius: 22, borderWidth: 1, borderColor: C.accent, visible: false })
 readBack.add(label('Read it back', { left: null, color: C.accent, font: { fontSize: 15, fontWeight: 'bold' }, touchEnabled: false }))
@@ -762,7 +802,24 @@ function toggleListening() {
     if (optionToggles.values.words) {
       options.contextualStrings = COMMANDS.reduce((all, command) => all.concat(command.says), [])
     }
+    // silenceTimeout ends the session that many seconds after the person stops; noSpeechTimeout waits that long for a first word
+    if (optionToggles.values.quick) {
+      options.silenceTimeout = 1
+      options.noSpeechTimeout = 5
+    }
+    // maxResults limits the alternatives in `words`
+    if (optionToggles.values.few) {
+      options.maxResults = 3
+    }
+    if (optionToggles.values.timing) {
+      options.segments = true
+    }
+    // iOS only: speaking rate and pauses of the person
+    if (optionToggles.values.detail) {
+      options.metadata = true
+    }
     heard.text = ''
+    detailLabel.text = ''
     stt.startSpeechToText(options)
   })
 }
@@ -819,7 +876,22 @@ function showTranscript(event) {
     alternativesRow.add(chip)
   })
   readBack.visible = true
+  showDetail(event)
   matchCommand(event.words || [event.text])
+}
+
+// `segments` carries one entry per word with its time in seconds; the Google recognizer on Android does not return them
+function showDetail(event) {
+  const lines = []
+  if (optionToggles.values.timing) {
+    lines.push(event.segments && event.segments.length
+      ? 'Word timing: ' + event.segments.slice(0, 6).map((segment) => `${segment.text} ${Number(segment.timestamp).toFixed(1)}s`).join(' · ')
+      : 'This recognizer returned no word timing.')
+  }
+  if (event.metadata) {
+    lines.push(`Speaking rate ${Math.round(Number(event.metadata.speakingRate) || 0)} words a minute, ${Number(event.metadata.averagePauseDuration || 0).toFixed(2)} s average pause.`)
+  }
+  detailLabel.text = lines.join('\n')
 }
 
 function matchCommand(alternatives) {
@@ -842,6 +914,9 @@ function matchCommand(alternatives) {
 }
 
 stt.addEventListener('started', () => {
+  if (state.transcribing) {
+    return
+  }
   setListening(true)
   startTicker()
 })
@@ -849,6 +924,10 @@ stt.addEventListener('started', () => {
 // The text appears while the person is still talking, in grey until it is final. A command is acted on as soon as
 // a partial contains it: cancelRecording() drops the session without waiting for the final result.
 stt.addEventListener('partial', (event) => {
+  if (state.transcribing) {
+    onFilePartial(event)
+    return
+  }
   if (state.stopping) {
     return
   }
@@ -860,6 +939,27 @@ stt.addEventListener('partial', (event) => {
     stt.cancelRecording()
   }
 })
+
+// The recognizer heard a voice, and later the voice ended
+stt.addEventListener('speechstart', () => {
+  if (state.listening && !state.stopping) {
+    listenStatus.text = 'Hearing you...'
+  }
+})
+stt.addEventListener('speechend', () => {
+  if (state.listening && !state.stopping) {
+    listenStatus.text = 'Listening...'
+  }
+})
+
+function showAvailability() {
+  if (!sttSupported) {
+    return
+  }
+  const code = LANGUAGES[state.listenLanguage].code
+  const note = IOS ? '' : ' (Android answers for the recognizer, not for one language)'
+  availabilityLabel.text = `Available now: ${stt.isAvailable(code) ? 'yes' : 'no'} · Works without a connection: ${stt.supportsOnDevice(code) ? 'yes' : 'no'}${note}`
+}
 
 stt.addEventListener('canceled', () => {
   stopTicker()
@@ -894,6 +994,10 @@ stt.addEventListener('languages', (event) => {
 })
 
 stt.addEventListener('completed', (event) => {
+  if (state.transcribing) {
+    onFileTranscribed(event)
+    return
+  }
   orb.transform = Ti.UI.create2DMatrix()
   stopTicker()
   state.stopping = false
@@ -914,12 +1018,345 @@ stt.addEventListener('completed', (event) => {
 
 if (sttSupported) {
   stt.requestSupportedLanguages()
+  showAvailability()
 }
 
 if (!sttSupported) {
   listenStatus.text = 'Not available'
   listenNotice.show('Speech recognition is not available on this device.')
 }
+
+// =============================================================================
+// More tab
+// =============================================================================
+
+const moreNotice = notice()
+morePage.add(moreNotice.view)
+
+// The text of the sample speeches follows the language chosen on the Speak tab
+const moreLanguage = () => speakLanguages[state.speakLanguage]
+
+// A row of equal outlined buttons
+function buttonRow(items) {
+  const row = Ti.UI.createView({ height: 44, left: 18, right: 18, top: 14, bottom: 18 })
+  const width = 100 / items.length
+  items.forEach((item, index) => {
+    const button = Ti.UI.createView({
+      width: percent(width - 2),
+      left: percent(index * width),
+      borderRadius: 22,
+      borderWidth: 1,
+      borderColor: C.accent,
+      backgroundColor: C.surface2
+    })
+    button.add(label(item.title, { left: null, color: C.accent, font: { fontSize: 14, fontWeight: 'bold' }, touchEnabled: false }))
+    button.addEventListener('click', item.onTap)
+    row.add(button)
+  })
+  return row
+}
+
+function sliderRow(title, min, max, value, format, onChange) {
+  const row = Ti.UI.createView({ height: Ti.UI.SIZE, left: 18, right: 18, top: 10, layout: 'vertical' })
+  const head = Ti.UI.createView({ height: 24 })
+  head.add(label(title, { font: { fontSize: 15 } }))
+  const shown = label(format(value), { left: null, right: 0, color: C.accent2, font: { fontSize: 14, fontWeight: 'bold' } })
+  head.add(shown)
+  row.add(head)
+  const slider = Ti.UI.createSlider({ min, max, value, height: Ti.UI.SIZE, left: 0, right: 0, top: 6, bottom: 4, tintColor: C.accent, trackTintColor: C.surface2 })
+  slider.addEventListener('change', (e) => {
+    shown.text = format(e.value)
+    onChange(e.value)
+  })
+  row.add(slider)
+  return row
+}
+
+const note = (text) => label(text, { left: 18, right: 18, top: 10, height: Ti.UI.SIZE, color: C.muted, font: { fontSize: 12 } })
+
+// Result lines of the silence and speaker wake demos
+const silenceStatus = label('', { left: 18, right: 18, top: 10, height: Ti.UI.SIZE, color: C.accent2, font: { fontSize: 12, fontWeight: 'bold' } })
+const wakeStatus = label('', { left: 18, right: 18, top: 10, height: Ti.UI.SIZE, color: C.accent2, font: { fontSize: 12, fontWeight: 'bold' } })
+
+// Cuts off whatever the Speak tab was saying and takes over the speech proxy for the More tab
+function takeOver(job) {
+  state.requested = false
+  hideKaraoke()
+  setSpeaking(false, '')
+  state.owner = 'more'
+  state.moreJob = job
+  moreNotice.hide()
+}
+
+// The Speak tab starts a speech: whatever the More tab was saying is over
+function releaseMore() {
+  state.moreJob = null
+  state.transcribing = false
+  clearHighlight()
+  silenceStatus.text = ''
+  wakeStatus.text = ''
+}
+
+// --- Pause and resume ----------------------------------------------------------------------------------------------
+
+const MORE_TEXT = 'Utterance can pause a speech and pick it up again. Press Pause while this sentence is playing, then press Resume.'
+
+const pauseCard = card('Pause and resume')
+const moreText = label(MORE_TEXT, { left: 18, right: 18, top: 10, height: Ti.UI.SIZE, font: { fontSize: 18 } })
+pauseCard.add(moreText)
+const stateLabel = label('', { left: 18, right: 18, top: 12, height: Ti.UI.SIZE, color: C.accent2, font: { fontSize: 12, fontWeight: 'bold' } })
+pauseCard.add(stateLabel)
+
+function clearHighlight() {
+  moreText.attributedString = Ti.UI.createAttributedString({ text: MORE_TEXT, attributes: [] })
+}
+
+// getState() says whether a speech sounds, is paused or waits in the queue; getMaxTextLength() is 0 when there is no limit
+function refreshState() {
+  const current = speech.getState()
+  const limit = speech.getMaxTextLength()
+  stateLabel.text = `getState(): speaking ${current.speaking}, paused ${current.paused}, queued ${current.queued}\nisPaused(): ${speech.isPaused()}\ngetMaxTextLength(): ${limit || 'no limit'}`
+}
+
+function playPauseDemo() {
+  takeOver('pause')
+  clearHighlight()
+  speech.startSpeaking({ text: MORE_TEXT, voice: 'en-US', bestVoice: true })
+}
+
+const pauseButtons = buttonRow([
+  { title: 'Play', onTap: playPauseDemo },
+  { title: 'Pause', onTap: () => speech.pauseSpeaking() },
+  { title: 'Resume', onTap: () => speech.continueSpeaking() },
+  { title: 'Stop', onTap: () => speech.stopSpeaking() }
+])
+pauseCard.add(pauseButtons)
+if (ANDROID) {
+  pauseCard.add(note('Android has no pause. The module stops the speech and Resume says the rest from the start of the word that was cut, so that word repeats.'))
+  pauseCard.add(spacer(14))
+}
+morePage.add(pauseCard)
+
+// --- Silence between sentences -------------------------------------------------------------------------------------
+
+const silenceCard = card('Silence in the queue')
+silenceCard.add(note('playSilence() puts a pause between queued speeches: three words with 0.8 s of silence between them.'))
+silenceCard.add(silenceStatus)
+
+function playSilenceDemo() {
+  takeOver('silence')
+  state.silenceStart = Date.now()
+  silenceStatus.text = 'Speaking...'
+  const say = (text, queue) => speech.startSpeaking({ text, voice: 'en-US', bestVoice: true, queue })
+  say('Ready.', false)
+  speech.playSilence(800, { queue: true })
+  say('Set.', true)
+  speech.playSilence(800, { queue: true })
+  say('Go!', true)
+}
+silenceCard.add(buttonRow([{ title: 'Ready, set, go', onTap: playSilenceDemo }]))
+morePage.add(silenceCard)
+
+// --- Pitch, pan and audio usage ------------------------------------------------------------------------------------
+
+const tone = { pitch: 1, pan: 0 }
+const toneCard = card('Voice tone')
+toneCard.add(sliderRow('Pitch', 0.5, 2, tone.pitch, (value) => value.toFixed(1), (value) => { tone.pitch = value }))
+if (ANDROID) {
+  // pan places the voice between the left (-1) and the right (1) speaker; iOS ignores it
+  toneCard.add(sliderRow('Pan', -1, 1, tone.pan, (value) => value.toFixed(1), (value) => { tone.pan = value }))
+} else {
+  toneCard.add(note('Pan, which places the voice between the left and right speaker, works on Android only.'))
+}
+// audioUsage 'assistant' tells the system this is a spoken prompt; audioFocus lowers other audio while it speaks (Android)
+const toneToggles = toggleRow([{ key: 'assistant', name: 'Assistant audio' }].concat(ANDROID ? [{ key: 'focus', name: 'Lower other audio' }] : []))
+toneCard.add(toneToggles.view)
+
+function playTone() {
+  takeOver('tone')
+  const language = moreLanguage()
+  const options = { text: language.sample, voice: language.code, bestVoice: true, pitch: Math.round(tone.pitch * 10) / 10 }
+  if (ANDROID) {
+    options.pan = Math.round(tone.pan * 10) / 10
+  }
+  if (toneToggles.values.assistant) {
+    options.audioUsage = 'assistant'
+  }
+  if (toneToggles.values.focus) {
+    options.audioFocus = true
+  }
+  speech.startSpeaking(options)
+}
+toneCard.add(buttonRow([{ title: 'Play sample', onTap: playTone }]))
+morePage.add(toneCard)
+
+// --- SSML and pronunciations (iOS) ---------------------------------------------------------------------------------
+
+function speakSsml() {
+  takeOver('markup')
+  speech.startSpeaking({ ssml: true, text: '<speak>Hello<break time="700ms"/>world</speak>', voice: 'en-US' })
+}
+
+function speakIpa() {
+  takeOver('markup')
+  speech.startSpeaking({ text: 'tomato', voice: 'en-US', pronunciations: [{ start: 0, end: 6, ipa: 'təˈmɑːtoʊ' }] })
+}
+
+if (IOS) {
+  const markupCard = card('SSML and pronunciation (iOS)')
+  markupCard.add(note('ssml: true reads the text as SSML, here with a pause of 700 ms. pronunciations speaks a range of the text with an IPA transcription.'))
+  markupCard.add(buttonRow([
+    { title: 'SSML pause', onTap: speakSsml },
+    { title: 'IPA word', onTap: speakIpa }
+  ]))
+  morePage.add(markupCard)
+}
+
+// --- Speaker wake (iOS) --------------------------------------------------------------------------------------------
+
+function wakeTest(disabled) {
+  takeOver('wake')
+  state.wakeStart = Date.now()
+  wakeStatus.text = 'Waiting for the voice...'
+  const options = { text: 'Speaker test.', voice: 'en-US' }
+  if (disabled) {
+    options.speakerWakeDelay = 0
+  }
+  speech.startSpeaking(options)
+}
+
+if (IOS) {
+  const wakeCard = card('Speaker wake (iOS)')
+  wakeCard.add(note('After about two seconds of silence the built-in speaker powers down. The next speech then starts with 0.2 s of silence, to avoid a click. Wait three seconds between taps and compare.'))
+  wakeCard.add(wakeStatus)
+  wakeCard.add(buttonRow([
+    { title: 'Wake on', onTap: () => wakeTest(false) },
+    { title: 'Wake off', onTap: () => wakeTest(true) }
+  ]))
+  morePage.add(wakeCard)
+}
+
+// --- Transcribe a file ---------------------------------------------------------------------------------------------
+
+const fileCard = card('Transcribe a file')
+fileCard.add(note('Saves the sample text of the Speak tab to a WAV file with synthesizeToFile(), then transcribes that file with transcribeFile().'))
+const fileResult = label('', { left: 18, right: 18, top: 10, height: Ti.UI.SIZE, color: C.text, font: { fontSize: 16, fontWeight: 'bold' } })
+fileCard.add(fileResult)
+
+function transcribeDemo() {
+  if (state.listening || state.starting || state.transcribing) {
+    return
+  }
+  if (!sttSupported) {
+    moreNotice.show('Speech recognition is not available on this device.')
+    return
+  }
+  takeOver('file')
+  fileResult.text = 'Saving the speech to a file...'
+  const language = moreLanguage()
+  state.fileLanguage = language.code
+  speech.synthesizeToFile({
+    text: language.sample,
+    voice: language.code,
+    bestVoice: true,
+    file: Ti.Filesystem.applicationDataDirectory + 'utterance-transcribe.wav'
+  })
+}
+fileCard.add(buttonRow([{ title: 'Save and transcribe', onTap: transcribeDemo }]))
+morePage.add(fileCard)
+morePage.add(spacer())
+
+function onFilePartial(event) {
+  fileResult.text = 'Heard so far: ' + event.text
+}
+
+function onFileTranscribed(event) {
+  state.transcribing = false
+  if (!event.success) {
+    fileResult.text = ''
+    moreNotice.show(friendly(event))
+    return
+  }
+  // `event.source` is the proxy on Android, so the line says where the audio came from without reading it
+  fileResult.text = `"${event.text}"\nfrom a file, language: ${event.language}`
+}
+
+// The synthesized event answers synthesizeToFile(); for this tab it is the first half of the transcription
+speech.addEventListener('synthesized', (e) => {
+  if (state.owner !== 'more' || state.moreJob !== 'file') {
+    return
+  }
+  if (!e.success) {
+    fileResult.text = ''
+    moreNotice.show('Could not save the speech: ' + (e.message || e.code))
+    return
+  }
+  ensureMicrophone((granted) => {
+    if (!granted) {
+      fileResult.text = ''
+      moreNotice.show('The speech recognition permission is off. Turn it on in the system settings.')
+      return
+    }
+    state.transcribing = true
+    fileResult.text = `Transcribing ${e.duration.toFixed(1)} s of audio...`
+    stt.transcribeFile(Ti.Filesystem.getFile(Ti.Filesystem.applicationDataDirectory, 'utterance-transcribe.wav'), { language: state.fileLanguage })
+  })
+})
+
+// --- Events of the speech proxy for the More tab -------------------------------------------------------------------
+
+speech.addEventListener('started', (e) => {
+  if (state.owner !== 'more') {
+    return
+  }
+  refreshState()
+  // iOS fires `started` for a silence too, with no text
+  if (state.moreJob === 'wake' && e.text) {
+    wakeStatus.text = `The voice started ${Date.now() - state.wakeStart} ms after the tap`
+    state.moreJob = null
+  }
+})
+
+speech.addEventListener('wordstart', (e) => {
+  if (state.owner !== 'more' || state.moreJob !== 'pause') {
+    return
+  }
+  moreText.attributedString = Ti.UI.createAttributedString({
+    text: MORE_TEXT,
+    attributes: [{ type: Ti.UI.ATTRIBUTE_BACKGROUND_COLOR, value: C.accent2, range: [e.start, e.end - e.start] }]
+  })
+})
+
+// On Android, `paused` carries success false when the engine does not report word positions
+speech.addEventListener('paused', (e) => {
+  if (state.owner === 'more' && !e.success) {
+    moreNotice.show(`This engine cannot pause (${e.code}).`)
+  }
+  refreshState()
+})
+speech.addEventListener('continued', refreshState)
+
+speech.addEventListener('completed', (e) => {
+  if (state.owner !== 'more') {
+    return
+  }
+  if (!e.success) {
+    moreNotice.show(e.message || 'The device could not speak this text.')
+  } else if (state.moreJob === 'silence') {
+    silenceStatus.text = `Done in ${((Date.now() - state.silenceStart) / 1000).toFixed(1)} s`
+  }
+  clearHighlight()
+  refreshState()
+})
+
+const onMoreStopped = () => {
+  if (state.owner === 'more') {
+    clearHighlight()
+    refreshState()
+  }
+}
+speech.addEventListener('stopped', onMoreStopped)
+speech.addEventListener('canceled', onMoreStopped)
 
 // =============================================================================
 // Lifecycle
