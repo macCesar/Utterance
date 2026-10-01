@@ -2,9 +2,30 @@
 
 Utterance speaks text in Titanium apps with AVSpeechSynthesizer on iOS and TextToSpeech on Android, using the same API and rate values on both.
 
-## Requirements (v4.0)
+- [Requirements](#requirements)
+- [What's new](#whats-new)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [How a speech works](#how-a-speech-works)
+- [Speaking: options](#speaking-options)
+- [Voices](#voices)
+- [Controlling playback](#controlling-playback)
+- [Events](#events)
+- [Words as they are spoken](#words-as-they-are-spoken)
+- [Saving speech to a file](#saving-speech-to-a-file)
+- [Errors](#errors)
+- [Only on iOS](#only-on-ios)
+- [Only on Android](#only-on-android)
+- [Recipes](#recipes)
+- [Differences between platforms](#differences-between-platforms)
+- [Performance and the speaker](#performance-and-the-speaker)
+- [Best practices](#best-practices)
+- [Tested and not tested](#tested-and-not-tested)
+
+## Requirements
+
 * Titanium SDK 13.0.0+ (the minimum in each module's `manifest`)
-* iOS 15.0+ (was 11.0+; current Xcode no longer builds for older targets)
+* iOS 15.0+ (current Xcode no longer builds for older targets)
 * Android 7.0+ (API level 24+), the minimum of Titanium SDK 13.4.1
 
 ## What's new
@@ -29,7 +50,7 @@ Utterance speaks text in Titanium apps with AVSpeechSynthesizer on iOS and TextT
 ### v3.2
 - No TTS calls on Android's main thread. Speaking, stopping, canceling, preloading, changing engine and the initial voice setup run on a background thread. Android's `TextToSpeech` waits on an internal lock while it connects to the engine; on the main thread that wait was reported by Google Play as an ANR (`Input dispatching timed out`).
 - On Android, `isSpeaking` reads a flag instead of asking the engine. Only the last queued utterance moves the flag, so it answers immediately and an earlier utterance finishing cannot turn it off.
-- `requestVoices()` delivers the installed voices asynchronously in a `voices` event, with the same shape on both platforms. See [Installed voices](#installed-voices-requestvoices-v32).
+- `requestVoices()` delivers the installed voices asynchronously in a `voices` event, with the same shape on both platforms. See [Listing the installed voices](#listing-the-installed-voices).
 - New `startSpeaking()` options: `voiceId`, `bestVoice` and `queue`.
 - iOS fixes: `voice` accepts `es_MX` as well as `es-MX`, and out-of-range `rate`, `pitchMultiplier` and `volume` values are now rejected (the range check always passed before).
 
@@ -46,13 +67,20 @@ Utterance speaks text in Titanium apps with AVSpeechSynthesizer on iOS and TextT
 - Legacy workarounds removed, and faster initialization on Android.
 - All v2.x APIs keep working unchanged.
 
-## Installation and setup
+## Installation
+
+Download the iOS and Android zips from the [releases page](https://github.com/macCesar/Utterance/releases), install them in your Titanium project and add the module to `tiapp.xml`:
+
+```xml
+<modules>
+  <module platform="iphone">bencoding.utterance</module>
+  <module platform="android">bencoding.utterance</module>
+</modules>
+```
 
 ```javascript
 const utterance = require('bencoding.utterance');
 ```
-
-### Permissions
 
 Text-to-speech needs no permissions. The entries below are for speech-to-text; add them to your `tiapp.xml` if you also use it:
 
@@ -82,539 +110,111 @@ Text-to-speech needs no permissions. The entries below are for speech-to-text; a
 </android>
 ```
 
-## Cross-platform rate normalization
-
-Since v3.0 the same rate value gives the same perceived speed on iOS and Android, so you no longer pass a different value per platform.
-
-### Rate standardization
-
-The default constants give about the same perceived speed on both platforms, although the numeric values differ between the two engines. Constants based on an exact mathematical mapping are also available.
-
-#### Why perceived speed
-
-1. `SLOW_SPEECH_RATE` sounds equally slow on both platforms.
-2. The engines are different (AVSpeechSynthesizer on iOS, android.speech.tts.TextToSpeech on Android), and each defines its rate range its own way.
-
-#### Available rate constants
-
-Perceptual constants (recommended):
-```javascript
-const speech = utterance.createSpeech();
-
-// These sound perceptually equivalent across platforms
-speech.VERY_SLOW_SPEECH_RATE  // iOS: 0.3,  Android: 0.4  - Very slow (accessibility)
-speech.SLOW_SPEECH_RATE       // iOS: 0.45, Android: 0.6  - Slow (careful listening)
-speech.DEFAULT_SPEECH_RATE    // iOS: 0.5,  Android: 1.0  - Normal speed
-speech.FAST_SPEECH_RATE       // iOS: 0.75, Android: 1.3  - Fast (efficient reading)
-speech.VERY_FAST_SPEECH_RATE  // iOS: 0.9,  Android: 1.6  - Very fast (quick consumption)
-```
-
-Mathematical constants (advanced):
-```javascript
-// For applications requiring exact mathematical precision
-// Formula: android = 0.1 + (ios × 2.9) | ios = (android - 0.1) ÷ 2.9
-speech.MATH_VERY_SLOW_SPEECH_RATE  // iOS: 0.125, Android: 0.475
-speech.MATH_SLOW_SPEECH_RATE       // iOS: 0.25,  Android: 0.825
-speech.MATH_FAST_SPEECH_RATE       // iOS: 0.625, Android: 1.875
-speech.MATH_VERY_FAST_SPEECH_RATE  // iOS: 0.75,  Android: 2.275
-```
-
 ## Quick start
 
 ```javascript
 const utterance = require('bencoding.utterance');
+
+// One proxy for the whole app, held by a constant at the top of the module
 const speech = utterance.createSpeech();
 
-// 🎉 Same rate value works identically on both platforms!
-speech.startSpeaking({
-  text: "This sounds the same speed everywhere!",
-  rate: speech.SLOW_SPEECH_RATE  // Consistent across iOS & Android
-});
-
-// Advanced: Use mathematical constants for precision applications
-speech.startSpeaking({
-  text: "This uses exact mathematical mapping",
-  rate: speech.MATH_SLOW_SPEECH_RATE
-});
-```
-
-## The speech proxy
-
-### Creating a speech instance
-
-```javascript
-const utterance = require('bencoding.utterance');
-const speech = utterance.createSpeech();
-
-// Modern v3.0 approach with cross-platform constants
-speech.startSpeaking({
-  text: "Hello world with modern APIs!",
-  rate: speech.DEFAULT_SPEECH_RATE  // Works consistently everywhere
-});
-```
-
-## API methods
-
-### `startSpeaking(options)`
-
-Starts speaking the given text.
-
-Parameters:
-
-| Parameter            | Type    | Platform     | Description                                                                                                                       |
-| -------------------- | ------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `text`               | String  | **Required** | The text to be spoken                                                                                                             |
-| `voice`              | String  | Optional     | Voice identifier or language code                                                                                                 |
-| `rate`               | Float   | Optional     | Speech rate (0-1). Use constants for consistency                                                                                  |
-| `volume`             | Float   | Optional     | Volume level (0-1). Default: 1.0. Android supports it since v4.2; a value outside the range is ignored                           |
-| `preUtteranceDelay`  | Float   | iOS only     | Delay before speaking (seconds)                                                                                                   |
-| `postUtteranceDelay` | Float   | iOS only     | Delay after speaking (seconds)                                                                                                    |
-| `pitch`              | Float   | Android only | Speech pitch. Default: 1.0                                                                                                        |
-| `voiceId`            | String  | Optional     | A voice `id` from the `voices` event (v3.2). If that voice is no longer installed, `voice` is used instead                        |
-| `bestVoice`          | Boolean | Optional     | When no `voiceId` applies, use the highest-quality installed voice for `voice`, same region first (v3.2). Default: `false`        |
-| `queue`              | Boolean | Optional     | Speak after the current utterance instead of cutting it off (v3.2). `completed` fires once, when the queue ends. Default: `false` |
-| `pan`                | Float   | Android only | Stereo position from -1 (left) to 1 (right) (v4.2). iOS ignores it                                                                |
-| `pitchMultiplier`    | Float   | Optional     | Alias of `pitch`; either name works on both platforms (v4.2)                                                                      |
-| `audioUsage`         | String  | Optional     | `media`, `assistant`, `notification`, `alarm` or `accessibility` (v4.2). See [Audio usage and focus](#audio-usage-and-focus)      |
-| `audioFocus`         | Boolean | Android only | Hold transient audio focus, lowering other audio, while the speech lasts (v4.2). Default: `false`                                |
-| `splitLongText`      | Boolean | Android only | Cut a text longer than `getMaxTextLength()` into sentences (v4.2). Default: `true`                                                |
-| `ssml`               | Boolean | iOS only     | Treat `text` as SSML (v4.2, iOS 16). On iOS 15 the call fails with `unsupported`                                                  |
-| `pronunciations`     | Array   | iOS only     | `[{ start, end, ipa }]`: ranges of `text` spoken with the given IPA (v4.2)                                                        |
-| `speakerWakeDelay`   | Float   | iOS only     | Seconds of silence before the first word when the speaker has been idle (v4.2). Default: 0.2; 0 turns it off                      |
-| `usesApplicationAudioSession`, `mixToTelephonyUplink`, `prefersAssistiveTechnologySettings` | Boolean | iOS only | The AVSpeechSynthesizer properties of the same name (v4.2) |
-
-### Basic usage
-
-```javascript
-const speech = utterance.createSpeech();
-
-// Simple speech
-speech.startSpeaking({
-  text: "Hello world! This demonstrates modern cross-platform speech synthesis."
-});
-
-// Check if already speaking
-if (speech.isSpeaking()) {
-  console.log("Already speaking, please wait...");
-} else {
-  speech.startSpeaking({
-    text: "Ready to speak now!"
-  });
-}
-```
-
-### Rates and platform options
-
-```javascript
-// Cross-platform optimized rates (perceptual equivalence)
-speech.startSpeaking({
-  text: "This is spoken at normal speed",
-  rate: speech.DEFAULT_SPEECH_RATE
-});
-
-// Using standardized slow rate (sounds equally slow on iOS/Android)
-speech.startSpeaking({
-  text: "This is spoken slowly for accessibility",
-  rate: speech.SLOW_SPEECH_RATE
-});
-
-// Platform-specific options
-if (Ti.Platform.osname === 'iphone' || Ti.Platform.osname === 'ipad') {
-  speech.startSpeaking({
-    text: "iOS-specific features",
-    volume: 0.8,                    // Volume control
-    preUtteranceDelay: 0.1,         // Delay before
-    postUtteranceDelay: 0.2,        // Delay after
-    rate: speech.FAST_SPEECH_RATE
-  });
-} else if (Ti.Platform.osname === 'android') {
-  speech.startSpeaking({
-    text: "Android-specific features",
-    pitch: 1.1,                     // Pitch control
-    rate: speech.DEFAULT_SPEECH_RATE
-  });
-}
-```
-
-## Voice selection (v3.0+)
-
-### Modern voice APIs
-
-```javascript
-const speech = utterance.createSpeech();
-
-// Get detailed voice information (v3.0+)
-try {
-  const voices = speech.getModernVoices();
-
-  console.log(`Available voices: ${voices.length}`);
-
-  voices.forEach(voice => {
-    if (Ti.Platform.osname === 'iphone' || Ti.Platform.osname === 'ipad') {
-      console.log(`Voice: ${voice.name}`);
-      console.log(`Language: ${voice.language}`);
-      console.log(`Quality: ${voice.quality}`);
-      console.log(`Gender: ${voice.gender || 'Unknown'}`);
-      console.log(`Network Required: ${voice.isNetworkConnectionRequired}`);
-    } else {
-      console.log(`Voice: ${voice.name}`);
-      console.log(`Locale: ${voice.locale}`);
-      console.log(`Quality: ${voice.quality}`);
-    }
-    console.log('---');
-  });
-} catch (error) {
-  console.warn("Modern voice APIs not available, using legacy API");
-  const voices = speech.getVoices();
-  console.log("Basic voices:", voices);
-}
-```
-
-### Installed voices: `requestVoices()` (v3.2)
-
-`requestVoices()` returns immediately and delivers the list in a `voices` event. Use it to build a voice picker: on Android, `getModernVoices()` waits for the engine on the calling thread, and called from a tap while the engine is connecting it can freeze the app.
-
-Every voice has the same shape on both platforms:
-
-| Property   | Type   | Description                                                                                         |
-| ---------- | ------ | --------------------------------------------------------------------------------------------------- |
-| `id`       | String | Pass it as `voiceId` to `startSpeaking()`. iOS: the voice identifier. Android: the voice name       |
-| `name`     | String | Display name on iOS (`Paulina`, `Juan`). Empty on Android, where engines only expose internal names |
-| `language` | String | BCP-47 tag, e.g. `es-MX`, `en-US`                                                                   |
-| `quality`  | String | `default`, `enhanced` or `premium`                                                                  |
-
-Only voices usable offline are listed: Android skips voices that need a network connection or are not downloaded, and iOS skips novelty voices (iOS 17+). Apps cannot download voices; on iOS users add them in **Settings › Accessibility › Spoken Content › Voices**.
-
-```javascript
-const speech = utterance.createSpeech();
-
-function onVoices({ voices }) {
-  speech.removeEventListener('voices', onVoices);
-
-  const spanish = voices.filter(voice => voice.language.startsWith('es'));
-  spanish.forEach(voice => console.log(`${voice.name || voice.id} · ${voice.language} · ${voice.quality}`));
-
-  // Later, speak with the one the user picked. If it was uninstalled in the
-  // meantime, the best installed es-MX voice speaks instead.
-  speech.startSpeaking({
-    text: 'El Gallo',
-    voiceId: spanish.length ? spanish[0].id : '',
-    voice: 'es_MX',
-    bestVoice: true
-  });
-}
-
-speech.addEventListener('voices', onVoices);
-speech.requestVoices();
-```
-
-### Best installed voice: `bestVoice` (v3.2)
-
-Without a `voiceId`, iOS speaks with the default voice for the language, and it keeps using the compact voice even when a better one is installed. `bestVoice: true` picks the installed voice with the highest quality for `voice`, preferring the same region (`es-MX` before `es-ES`). The result is cached per language for the life of the app.
-
-```javascript
-speech.startSpeaking({ text: 'La Dama', voice: 'es_MX', bestVoice: true });
-```
-
-### Queued utterances: `queue` (v3.2)
-
-By default every `startSpeaking()` cuts off what is playing. With `queue: true` the text is spoken right after it, each part with its own voice and rate, and `completed` fires once, after the last one. Useful to say two sentences in two languages without a gap:
-
-```javascript
-speech.startSpeaking({ text: 'El Gallo', voice: 'es_MX' });
-speech.startSpeaking({ text: 'Winning table, number 3', voice: 'en_US', queue: true });
-
-speech.addEventListener('completed', () => {
-  // Both parts have been spoken.
-});
-```
-
-### Voice selection helper
-
-```javascript
-class SmartVoiceSelector {
-  constructor() {
-    this.speech = utterance.createSpeech();
-    this.cachedVoices = null;
+speech.addEventListener('completed', (e) => {
+  if (!e.success) {
+    console.warn(`The speech failed: ${e.code}, ${e.message}`);
   }
-
-  getVoices() {
-    if (!this.cachedVoices) {
-      try {
-        this.cachedVoices = this.speech.getModernVoices();
-      } catch (error) {
-        this.cachedVoices = this.speech.getVoices().map(name => ({ name }));
-      }
-    }
-    return this.cachedVoices;
-  }
-
-  findBestVoice(language = 'en', preferredGender = null) {
-    const voices = this.getVoices();
-
-    // Filter by language
-    const languageVoices = voices.filter(voice => {
-      const voiceLang = voice.language || voice.locale || voice.name;
-      return voiceLang.toLowerCase().includes(language.toLowerCase());
-    });
-
-    if (languageVoices.length === 0) {
-      return null; // No voices for this language
-    }
-
-    // Prefer high-quality voices
-    const highQualityVoices = languageVoices.filter(voice =>
-      (voice.quality || 0) > 300
-    );
-
-    const candidateVoices = highQualityVoices.length > 0 ?
-      highQualityVoices : languageVoices;
-
-    // Filter by gender if specified
-    if (preferredGender) {
-      const genderVoices = candidateVoices.filter(voice =>
-        (voice.gender || '').toLowerCase() === preferredGender.toLowerCase()
-      );
-
-      if (genderVoices.length > 0) {
-        return genderVoices[0];
-      }
-    }
-
-    return candidateVoices[0];
-  }
-
-  speakWithBestVoice(text, language = 'en', options = {}) {
-    const bestVoice = this.findBestVoice(language, options.gender);
-
-    const speechConfig = {
-      text,
-      rate: options.rate || this.speech.DEFAULT_SPEECH_RATE,
-      ...options
-    };
-
-    if (bestVoice) {
-      speechConfig.voice = bestVoice.name;
-      console.log(`Using voice: ${bestVoice.name} (Quality: ${bestVoice.quality || 'Unknown'})`);
-    }
-
-    this.speech.startSpeaking(speechConfig);
-  }
-}
-
-// Usage
-const voiceSelector = new SmartVoiceSelector();
-
-// Speak with best English voice
-voiceSelector.speakWithBestVoice("Hello, this uses the best available English voice!");
-
-// Speak with best Spanish female voice
-voiceSelector.speakWithBestVoice(
-  "Hola, esta es la mejor voz femenina en español disponible",
-  'es',
-  {
-    gender: 'female',
-    rate: voiceSelector.speech.SLOW_SPEECH_RATE
-  }
-);
-```
-
-## Control methods
-
-### Speech control
-
-```javascript
-const speech = utterance.createSpeech();
-
-// Start speaking
-speech.startSpeaking({
-  text: "This is a long text that can be paused and resumed...",
-  rate: speech.DEFAULT_SPEECH_RATE
 });
 
-// Pause speech (immediate or at word boundary)
-speech.pauseSpeaking(); // Immediate pause
-// or
-speech.pauseSpeaking('word'); // Pause at next word boundary (iOS)
-
-// Resume paused speech
-speech.continueSpeaking();
-
-// Stop speech completely
-speech.stopSpeaking(); // Immediate stop
-// or
-speech.stopSpeaking('sentence'); // Stop at next sentence boundary (iOS)
-
-// Check speaking status
-if (speech.isSpeaking()) {
-  console.log("Currently speaking");
-}
-
-// Check platform support
 if (speech.isSupported()) {
-  console.log("Text-to-Speech is supported");
-}
-```
-
-### Android-specific options
-
-```javascript
-const speech = utterance.createSpeech();
-
-if (Ti.Platform.osname === 'android') {
-  // Enhanced Android speech synthesis
   speech.startSpeaking({
-    text: "Android-specific features available",
-    pitch: 1.1,                     // Pitch control
-    rate: speech.DEFAULT_SPEECH_RATE
+    voice: 'en-US',
+    rate: speech.DEFAULT_SPEECH_RATE,
+    text: 'Hello! This is Utterance.'
   });
 }
 ```
 
-## Events
+`voice` is a language code. `rate` uses a constant that sounds equally fast on both platforms. `completed` fires when the speech ends and also when it fails, so a single listener covers both.
 
-### Listening for events
-
-```javascript
-const speech = utterance.createSpeech();
-
-// Speech started
-speech.addEventListener('started', (event) => {
-  console.log("Speech synthesis started");
-});
-
-// Speech completed (with queue: true, once the whole queue ends)
-speech.addEventListener('completed', (event) => {
-  console.log("Speech synthesis completed");
-});
-
-// Reply to requestVoices() (v3.2)
-speech.addEventListener('voices', (event) => {
-  console.log(`Installed voices: ${event.voices.length}`);
-});
-
-// Speech paused (iOS and Android compatibility events)
-speech.addEventListener('paused', (event) => {
-  console.log("Speech synthesis paused");
-});
-
-// Speech resumed (iOS and Android compatibility events)
-speech.addEventListener('continued', (event) => {
-  console.log("Speech synthesis resumed");
-});
-
-// Speech stopped with stopSpeaking()
-speech.addEventListener('stopped', (event) => {
-  console.log("Speech synthesis stopped");
-});
-
-// Speech canceled
-speech.addEventListener('canceled', (event) => {
-  console.log("Speech synthesis canceled");
-});
-
-// Error handling
-speech.addEventListener('error', (event) => {
-  console.error("TTS Error:", event.error);
-});
-```
-
-### Event manager example
-
-```javascript
-class SpeechManager {
-  constructor() {
-    this.speech = utterance.createSpeech();
-    this.isReady = false;
-    this.setupEvents();
-    this.initialize();
-  }
-
-  setupEvents() {
-    this.speech.addEventListener('started', () => {
-      console.log("🎤 Speech started");
-      this.onSpeechStarted();
-    });
-
-    this.speech.addEventListener('completed', () => {
-      console.log("✅ Speech completed");
-      this.onSpeechCompleted();
-    });
-
-    this.speech.addEventListener('paused', () => {
-      console.log("⏸️ Speech paused");
-      this.onSpeechPaused();
-    });
-
-    this.speech.addEventListener('continued', () => {
-      console.log("▶️ Speech continued");
-      this.onSpeechContinued();
-    });
-
-    this.speech.addEventListener('canceled', () => {
-      console.log("❌ Speech canceled");
-      this.onSpeechCanceled();
-    });
-
-    this.speech.addEventListener('error', (event) => {
-      console.error("❌ Speech error:", event.error);
-      this.onSpeechError(event);
-    });
-  }
-
-  initialize() {
-    // Initialize speech system
-    this.isReady = true;
-    console.log("🚀 TTS initialized and ready");
-  }
-
-  speak(text, options = {}) {
-    if (!this.isReady) {
-      console.warn("TTS not ready yet, queuing speech...");
-      setTimeout(() => this.speak(text, options), 100);
-      return;
-    }
-
-    this.speech.startSpeaking({
-      text,
-      rate: options.rate || this.speech.DEFAULT_SPEECH_RATE,
-      ...options
-    });
-  }
-
-  // Event handlers (override in subclasses)
-  onSpeechStarted() { /* Override me */ }
-  onSpeechCompleted() { /* Override me */ }
-  onSpeechPaused() { /* Override me */ }
-  onSpeechContinued() { /* Override me */ }
-  onSpeechCanceled() { /* Override me */ }
-  onSpeechError(event) { /* Override me */ }
-}
-
-// Usage
-const speechManager = new SpeechManager();
-
-speechManager.speak("This speech is managed with complete event handling!");
-```
-
-## New in v4.2
-
-Options and events that this section does not mention behave as before. An option a platform has no equivalent for is ignored there.
+## How a speech works
 
 ### Keep a reference to the proxy
 
 Events reach your app only while JavaScript still holds the proxy. If `createSpeech()` runs inside a function and nothing else refers to the result, JavaScript can collect the proxy once the function has finished, and its events stop arriving without any error. Keep the proxy in a constant at the top of a CommonJS module, for example `const speech = utterance.createSpeech()`, and export the functions that use it.
 
-### Words as they are spoken: `wordstart`
+### The life of a speech
+
+`startSpeaking()` returns at once and the speech happens in the background. The events arrive in this order:
+
+1. `started` when the speech begins.
+2. `wordstart` for every word, if a listener exists.
+3. `completed` when the speech ends. A failure also arrives here, with `success: false`, followed by `error`.
+
+`paused` and `continued` follow `pauseSpeaking()` and `continueSpeaking()`. `stopped` follows `stopSpeaking()`, and iOS adds `canceled`. `cancelSpeaking()` on Android fires `canceled`.
+
+Events fire after the call that caused them returns, never inside it, and only when a listener exists at that moment. Add your listeners before the first call.
+
+### Cut off or queue
+
+By default `startSpeaking()` cuts off what is speaking. With `queue: true` the text waits for its turn, each part keeps its own voice and rate, and `completed` fires once, when the whole queue ends. `getState()` tells you what is going on:
 
 ```javascript
-speech.addEventListener('wordstart', (e) => {
-  // e = { start, end, word, utteranceId }
-  highlight(e.start, e.end)
-})
+speech.startSpeaking({ text: 'The first sentence.', voice: 'en-US' });
+speech.startSpeaking({ text: 'The second one waits.', voice: 'en-US', queue: true });
+
+speech.getState(); // { speaking: true, paused: false, queued: 1 }
 ```
 
-`start` and `end` are positions in the text you passed, also when Android splits a long text. On iOS `end` is the first position after the word; on Android the positions are UTF-16 offsets. With `ssml: true` they are offsets in the SSML string. The event fires only when a listener exists. On Android it needs Android 8 (API 26) and an engine that reports ranges; only Google's engine was tried.
+`queued` counts the utterances waiting behind the one that sounds.
+
+## Speaking: options
+
+`startSpeaking(options)` starts speaking the given text.
+
+| Parameter                                                                                   | Type    | Platform     | Description                                                                                                                                           |
+| ------------------------------------------------------------------------------------------- | ------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `text`                                                                                      | String  | **Required** | The text to be spoken                                                                                                                                 |
+| `voice`                                                                                     | String  | Optional     | A language code such as `es-MX` or `es_MX`. iOS defaults to `auto`, which detects the language of the text. Android also accepts an engine voice name |
+| `voiceId`                                                                                   | String  | Optional     | A voice `id` from the `voices` event (v3.2). If that voice is no longer installed, `voice` is used instead                                            |
+| `bestVoice`                                                                                 | Boolean | Optional     | When no `voiceId` applies, use the highest-quality installed voice for `voice`, same region first (v3.2). Default: `false`                            |
+| `rate`                                                                                      | Float   | Optional     | Speech rate. 0 to 1 on iOS, 0.1 to 3 on Android. Use the constants in [Rate constants](#rate-constants)                                               |
+| `volume`                                                                                    | Float   | Optional     | Volume level, 0 to 1. Default: 1.0. Android supports it since v4.2. A value outside the range is ignored and logged                                   |
+| `pitch`                                                                                     | Float   | Optional     | Speech pitch, 1.0 by default. On iOS it goes from 0.5 to 2. `pitchMultiplier` is the same option                                                      |
+| `queue`                                                                                     | Boolean | Optional     | Speak after the current utterance instead of cutting it off (v3.2). `completed` fires once, when the queue ends. Default: `false`                     |
+| `pan`                                                                                       | Float   | Android only | Stereo position from -1 (left) to 1 (right) (v4.2). iOS ignores it                                                                                    |
+| `audioUsage`                                                                                | String  | Optional     | `media`, `assistant`, `notification`, `alarm` or `accessibility` (v4.2). See [Audio usage and focus](#audio-usage-and-focus)                          |
+| `audioFocus`                                                                                | Boolean | Android only | Hold transient audio focus, lowering other audio, while the speech lasts (v4.2). Default: `false`                                                     |
+| `splitLongText`                                                                             | Boolean | Android only | Cut a text longer than `getMaxTextLength()` into sentences (v4.2). Default: `true`                                                                    |
+| `ssml`                                                                                      | Boolean | iOS only     | Treat `text` as SSML (v4.2, iOS 16). On iOS 15 the call fails with `unsupported`                                                                      |
+| `pronunciations`                                                                            | Array   | iOS only     | `[{ start, end, ipa }]`: ranges of `text` spoken with the given IPA (v4.2)                                                                            |
+| `speakerWakeDelay`                                                                          | Float   | iOS only     | Seconds of silence before the first word when the speaker has been idle (v4.2). Default: 0.2; 0 turns it off                                          |
+| `preUtteranceDelay`, `postUtteranceDelay`                                                   | Float   | iOS only     | Seconds before and after the speech. They are the synthesizer's own properties and add no measurable wait; use `playSilence()` for a pause            |
+| `usesApplicationAudioSession`, `mixToTelephonyUplink`, `prefersAssistiveTechnologySettings` | Boolean | iOS only     | The AVSpeechSynthesizer properties of the same name (v4.2)                                                                                            |
+
+### Rate constants
+
+The constants sound about equally fast on both platforms, although the numbers differ because the engines define their ranges differently. Use them instead of numbers and the same code works everywhere.
+
+| Constant                | iOS  | Android | Use               |
+| ----------------------- | ---- | ------- | ----------------- |
+| `VERY_SLOW_SPEECH_RATE` | 0.25 | 0.4     | Accessibility     |
+| `SLOW_SPEECH_RATE`      | 0.35 | 0.6     | Careful listening |
+| `DEFAULT_SPEECH_RATE`   | 0.5  | 1.0     | Normal speed      |
+| `FAST_SPEECH_RATE`      | 0.55 | 1.3     | Efficient reading |
+| `VERY_FAST_SPEECH_RATE` | 0.65 | 1.6     | Quick consumption |
+
+`MIN_SPEECH_RATE` and `MAX_SPEECH_RATE` are the limits of each platform. Four `MATH_*` constants (`MATH_VERY_SLOW_SPEECH_RATE`, `MATH_SLOW_SPEECH_RATE`, `MATH_FAST_SPEECH_RATE` and `MATH_VERY_FAST_SPEECH_RATE`) map one range onto the other with an exact formula, `android = 0.1 + ios × 2.9`, for apps that need arithmetic equivalence more than a matching impression.
+
+To let the user pick a speed, keep the constants in a list and index it:
+
+```javascript
+const SPEEDS = [
+  { title: 'Slow', rate: speech.SLOW_SPEECH_RATE },
+  { title: 'Normal', rate: speech.DEFAULT_SPEECH_RATE },
+  { title: 'Fast', rate: speech.FAST_SPEECH_RATE }
+];
+
+speech.startSpeaking({ text, voice: 'en-US', rate: SPEEDS[selected].rate });
+```
 
 ### Volume, pan and pitch
 
@@ -624,69 +224,266 @@ speech.addEventListener('wordstart', (e) => {
 
 `audioUsage` says what the speech is for: `media`, `assistant`, `notification`, `alarm` or `accessibility`. On Android it sets the engine's audio attributes. On iOS it sets the app's audio session, and only while `usesApplicationAudioSession` is `true` (the default): `media` and `alarm` use the Playback category, `assistant` and `accessibility` use Playback with the spoken audio mode, and `notification` uses Ambient.
 
-On Android, `audioFocus: true` requests transient audio focus that lowers other audio, and releases it when the speech ends.
+On Android, `audioFocus: true` requests transient audio focus that lowers other audio, and releases it when the speech ends. A navigation prompt over music is the usual case:
 
-### Speaker wake on iOS: `speakerWakeDelay`
+```javascript
+speech.startSpeaking({
+  voice: 'en-US',
+  audioFocus: true,
+  audioUsage: 'assistant',
+  text: 'In 200 meters, turn left.'
+});
+```
 
-The built-in speaker of an iPad powers down about two seconds after the last sound and starts cold with the next one. A cold start under the first word can click. When more than 1.8 seconds have passed since the last sound and the output is the built-in speaker, `startSpeaking()` plays silence and waits `speakerWakeDelay` seconds before the speech begins. The silence keeps playing until the speech ends.
+## Voices
 
-The default is 0.2 seconds. It adds 0.3 to 0.4 seconds to a speech that follows a pause (measured from the call to the voice on an iPad), and nothing to speeches that follow each other or to speech through headphones. `speakerWakeDelay: 0` turns it off. Android ignores the option.
+### Choosing the language and the voice
 
-The click is intermittent, and the evidence that the wake prevents it comes from listening on one iPad (9th generation, iOS 27): no click in the ten cases with a warm speaker or a silent lead-in, against four clicks in seven cold starts without it.
+`voice` takes a language code. On iOS the code is all it accepts: `voice: 'Paulina'` is not a language and the default voice speaks instead. On Android, `voice` also accepts the name of an engine voice. Code that must run on both platforms picks voices with `voiceId`, which the next section explains.
 
-### Synthesizing to a file: `synthesizeToFile()`
+Without `voice`, iOS detects the language from the text. Android uses the engine's current language.
+
+`bestVoice: true` picks the installed voice with the highest quality for `voice`, preferring the same region (`es-MX` before `es-ES`). Without it, iOS keeps using the compact voice even when a better one is installed. The result is cached per language for the life of the app:
+
+```javascript
+speech.startSpeaking({ text: 'La Dama', voice: 'es_MX', bestVoice: true });
+```
+
+### Listing the installed voices
+
+`requestVoices()` returns immediately and delivers the list in a `voices` event. Use it to build a voice picker: on Android, `getModernVoices()` waits for the engine on the calling thread, and called from a tap while the engine is connecting it can freeze the app.
+
+Every voice has the same shape on both platforms:
+
+| Property          | Type    | Description                                                                                                        |
+| ----------------- | ------- | ------------------------------------------------------------------------------------------------------------------ |
+| `id`              | String  | Pass it as `voiceId` to `startSpeaking()`. iOS: the voice identifier. Android: the voice name                      |
+| `name`            | String  | Display name on iOS (`Paulina`, `Juan`). On Android, the language followed by the engine's own name in parentheses |
+| `language`        | String  | BCP-47 tag, e.g. `es-MX`, `en-US`. Android reports `es_MX`, so compare with `/[-_]/`                               |
+| `quality`         | String  | `default`, `enhanced` or `premium`                                                                                 |
+| `networkRequired` | Boolean | Whether the voice needs a connection                                                                               |
+
+iOS adds `gender` (`male`, `female` or `unspecified`), `novelty` and `personal`. Android adds `installed`, `latency` and `features`. `requestVoices({ includeNovelty: true })` on iOS adds the novelty voices, and a Personal Voice has `personal: true`. `requestVoices({ includeNetwork: true, includeNotInstalled: true })` on Android adds the voices that need the network and the ones whose data is not on the device.
+
+By default only voices usable offline are listed. Apps cannot download voices; on iOS users add them in **Settings › Accessibility › Spoken Content › Voices**.
+
+On a cold start Android can still be connecting to the engine and answer with an empty list. Ask again after a moment, as the picker recipe does.
+
+`getModernVoices()` is the older call. Its shape differs by platform: iOS returns `name`, `language`, `identifier` and a numeric `quality` from 1 to 3, and Android returns `name`, `locale`, `language`, `country`, `quality` up to 500, `qualityString` and `isNetworkConnectionRequired`. Code that must read both is simpler with `requestVoices()`.
+
+### Remembering the user's choice
+
+Save the `id` of the voice the user picked, and pass it with the language as a fallback. If the voice is uninstalled later, `voiceId` finds nothing and the best installed voice for the language speaks instead:
+
+```javascript
+speech.startSpeaking({
+  voice: 'es_MX',
+  bestVoice: true,
+  text: 'El Gallo',
+  voiceId: Ti.App.Properties.getString('voiceId', '')
+});
+```
+
+### Personal Voice (iOS 17)
+
+```javascript
+speech.addEventListener('personalvoice', (e) => {
+  // e = { success, status, authorized }
+});
+speech.requestPersonalVoiceAuthorization();
+```
+
+`status` is `not_determined`, `denied`, `unsupported` or `authorized`; `getPersonalVoiceStatus()` returns the same value without asking. The app needs `NSPersonalVoiceUsageDescription` in the iOS `plist` of `tiapp.xml`. Once authorized, a Personal Voice appears in `requestVoices()` with `personal: true`. The `voiceschanged` event fires with `{ success: true }` when the installed voices change.
+
+## Controlling playback
+
+```javascript
+speech.stopSpeaking();
+speech.pauseSpeaking();
+speech.continueSpeaking();
+
+speech.isPaused();
+speech.getState();     // { speaking, paused, queued }
+speech.isSpeaking();   // true while a speech sounds. `speech.isSpeaking` without parentheses works too
+```
+
+Call `pauseSpeaking()` without arguments on Android. On iOS it accepts `speech.SPEECH_BOUNDARY_WORD` to pause at the next word instead of at once, and `stopSpeaking()` accepts the same constant. `SPEECH_BOUNDARY_IMMEDIATE` and `SPEECH_BOUNDARY_WORD` are 0 and 1 on both platforms.
+
+`stopSpeaking()` also stops a paused speech. `cancelSpeaking()` exists on Android only.
+
+### Pause and resume on Android
+
+Android's `TextToSpeech` has no pause. `pauseSpeaking()` stops the speech at once, even in the middle of a word, and remembers the position of the last word. `continueSpeaking()` says the rest of the text from the start of that word, so a word cut in half is repeated whole. That needs an engine that reports word positions. Without them `paused` carries `success: false` and the code `unsupported`.
+
+A pause button that works on both platforms listens to the events and not to its own state, so the label follows what really happened:
+
+```javascript
+speech.addEventListener('paused', (e) => {
+  if (e.success) {
+    pauseButton.title = 'Resume';
+  } else {
+    console.warn(`This engine cannot pause: ${e.code}`);
+  }
+});
+speech.addEventListener('continued', () => {
+  pauseButton.title = 'Pause';
+});
+
+pauseButton.addEventListener('click', () => {
+  if (speech.isPaused()) {
+    speech.continueSpeaking();
+  } else {
+    speech.pauseSpeaking();
+  }
+});
+```
+
+### Silence: `playSilence()`
+
+`playSilence(milliseconds, { queue })` puts a pause in the queue. With `queue: true` it comes after what is speaking; without it, it replaces it. On iOS the pause is timed by the module, and it fires `started` (with an empty `text`) and `completed` like a speech. On Android it fires neither and does not count as speaking.
+
+```javascript
+speech.startSpeaking({ text: 'Ready.', voice: 'en-US' });
+speech.playSilence(800, { queue: true });
+speech.startSpeaking({ text: 'Set.', voice: 'en-US', queue: true });
+```
+
+### Text length
+
+`getMaxTextLength()` returns 4000 on Android and 0 on iOS, which has no limit. On Android, `startSpeaking()` cuts a longer text into sentences and speaks the parts in order; `completed` fires once, at the end. With `splitLongText: false` the call fails with the code `text_too_long`.
+
+## Events
+
+| Event           | Platform     | Payload                                                                                                                                  |
+| --------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `started`       | iOS, Android | `{ success, speaking, text, voice, utteranceId }` and on Android `rate`, `pitch`. The speech began to sound                              |
+| `completed`     | iOS, Android | The same keys. The speech ended, or failed: check `success` and read `code` and `message`. With `queue: true`, once the whole queue ends |
+| `wordstart`     | iOS, Android | `{ start, end, word, utteranceId }`. A word is about to be spoken (v4.2)                                                                 |
+| `paused`        | iOS, Android | The speech paused. On Android `success: false` means the engine cannot pause                                                             |
+| `continued`     | iOS, Android | The speech resumed                                                                                                                       |
+| `stopped`       | iOS, Android | `stopSpeaking()` stopped the speech                                                                                                      |
+| `canceled`      | iOS, Android | The speech was canceled. iOS fires it after `stopped`; Android fires it for `cancelSpeaking()`                                           |
+| `error`         | iOS, Android | `{ success: false, error, message, code }`. iOS also fires `errored`                                                                     |
+| `voices`        | iOS, Android | Reply to `requestVoices()`: `{ voices: [{ id, name, language, quality, ... }] }`                                                         |
+| `synthesized`   | iOS, Android | Reply to `synthesizeToFile()`: `{ success, file, duration, format, sampleRate, utteranceId }` (v4.2)                                     |
+| `registered`    | iOS, Android | Reply to `addSpeech()` and `addEarcon()`; iOS answers `unsupported` (v4.2)                                                               |
+| `marker`        | iOS 17       | A synthesizer marker: `{ kind, start, end }` (v4.2)                                                                                      |
+| `personalvoice` | iOS 17       | Reply to `requestPersonalVoiceAuthorization()` (v4.2)                                                                                    |
+| `voiceschanged` | iOS          | The installed voices changed (v4.2)                                                                                                      |
+| `initialized`   | Android      | The engine finished connecting                                                                                                           |
+
+```javascript
+speech.addEventListener('error', (e) => console.warn(e.code, e.message));
+speech.addEventListener('started', (e) => console.log('Speaking:', e.text));
+speech.addEventListener('completed', (e) => console.log(e.success ? 'Done' : `Failed: ${e.code}`));
+```
+
+## Words as they are spoken
+
+```javascript
+speech.addEventListener('wordstart', (e) => {
+  // e = { start, end, word, utteranceId }
+  highlight(e.start, e.end);
+});
+```
+
+`start` and `end` are positions in the text you passed, also when Android splits a long text. On iOS `end` is the first position after the word; on Android the positions are UTF-16 offsets. With `ssml: true` they are offsets in the SSML string. The event fires only when a listener exists. On Android it needs Android 8 (API 26) and an engine that reports ranges; only Google's engine was tried.
+
+The recipe [Read a text aloud with the word highlighted](#read-a-text-aloud-with-the-word-highlighted) shows it working.
+
+## Saving speech to a file
 
 ```javascript
 speech.addEventListener('synthesized', (e) => {
   if (e.success) {
-    console.log(e.file, e.duration, e.sampleRate)
+    console.log(e.file, e.duration, e.sampleRate);
   } else {
-    console.log(e.code, e.message)
+    console.warn(e.code, e.message);
   }
-})
+});
 
 speech.synthesizeToFile({
   text: 'Hello',
   voice: 'en-US',
   file: Ti.Filesystem.applicationDataDirectory + 'hello.wav'
-})
+});
 ```
 
-It takes the options of `startSpeaking()` plus `file`, and plays nothing. The file is a 16 bit WAV. On iOS `file` is a path ending in `.wav`. On Android it is a path, a URL Titanium understands or a `Ti.Filesystem.File`. Without `file` the audio goes to the cache and the event says where.
+`synthesizeToFile()` takes the options of `startSpeaking()` plus `file`, and plays nothing. The file is a 16 bit WAV. On iOS `file` is a path ending in `.wav`. On Android it is a path, a URL Titanium understands or a `Ti.Filesystem.File`. Without `file` the audio goes to the cache and the event says where.
 
-`synthesized` carries `success`, `file`, `duration` in seconds, `format` (`'wav'`), `sampleRate` and `utteranceId`. Android adds `channels`, `bitsPerSample` and `text`. A failure carries `success: false`, `code`, `message` and `utteranceId`. On iOS 16 and later, `markers: true` adds a `markers` array to the event with the entries described under [Markers](#ssml-pronunciations-and-markers-ios) and a `time` in milliseconds.
+`synthesized` carries `success`, `file`, `duration` in seconds, `format` (`'wav'`), `sampleRate` and `utteranceId`. Android adds `channels`, `bitsPerSample` and `text`. A failure carries `success: false`, `code`, `message` and `utteranceId`. On iOS 16 and later, `markers: true` adds a `markers` array to the event with the entries described under [SSML, pronunciations and markers](#ssml-pronunciations-and-markers) and a `time` in milliseconds.
 
 On Android the engine has one queue, so the file is made after what is speaking, and a speech without `queue: true`, `stopSpeaking()` or `cancelSpeaking()` cancels it with the code `canceled`.
 
-### Silence: `playSilence()`
+To play the file, hand its path to `Ti.Media.createSound`. Android needs a `file://` URL:
 
-`playSilence(milliseconds, { queue })` puts a pause in the queue. With `queue: true` it comes after what is speaking; without it, it replaces it. On iOS the pause is timed by the module, because the synthesizer's `preUtteranceDelay` and `postUtteranceDelay` produced no measurable delay, and it fires `started` and `completed` like a speech. On Android it fires neither and does not count as speaking.
+```javascript
+speech.addEventListener('synthesized', (e) => {
+  if (!e.success) {
+    return;
+  }
+  const url = e.file.indexOf('file') === 0 ? e.file : 'file://' + e.file;
+  const sound = Ti.Media.createSound({ url });
+  sound.addEventListener('complete', () => sound.release());
+  sound.play();
+});
+```
 
-### State and text length
+## Errors
 
-`getState()` returns `{ speaking, paused, queued }`, where `queued` counts the utterances waiting behind the one that sounds. `isPaused()` returns a boolean. `getMaxTextLength()` returns 4000 on Android and 0 on iOS, which has no limit.
+A failure arrives in `completed` with `success: false`, `code`, `nativeCode` and `message`, and in an `error` event with `error`, `message` and `code`. On iOS an `errored` event fires as well, the name that version used before. Both platforms answer the same way, including a call that was refused before anything was queued.
 
-On Android, `startSpeaking()` cuts a longer text into sentences and speaks the parts in order; `completed` fires once, at the end. With `splitLongText: false` the call fails with the code `text_too_long`.
-
-### Errors with a code
-
-A failure arrives in `completed` with `success: false`, `code`, `nativeCode` and `message`, and in an `error` event with `error`, `message` and `code`. On iOS an `errored` event fires as well, the name that version used before.
-
-| Code | When |
-| --- | --- |
-| `invalid_argument` | The text is missing or empty, or an option has an invalid value |
-| `unsupported` | The platform has no equivalent, or the iOS version is too old (for example SSML on iOS 15) |
-| `not_ready` | Android: the engine has not finished starting |
-| `text_too_long` | Android: the text is over the limit and `splitLongText` is `false` |
+| Code                                                        | When                                                                                                                     |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `invalid_argument`                                          | The text is missing or empty, or an option has an invalid value                                                          |
+| `unsupported`                                               | The platform has no equivalent, or the iOS version is too old (for example SSML on iOS 15)                               |
+| `not_ready`                                                 | Android: the engine has not finished starting                                                                            |
+| `text_too_long`                                             | Android: the text is over the limit and `splitLongText` is `false`                                                       |
 | `synthesis`, `service_error`, `audio`, `network`, `timeout` | Android: the engine reported the matching error. `synthesis` is also the code of an iOS synthesis that produced no audio |
-| `language_unavailable` | Android: the voice data for the language is not installed yet |
-| `invalid_file` | The file of `synthesizeToFile()` cannot be written |
-| `canceled` | The work was canceled before it finished |
-| `unknown` | Anything else |
+| `language_unavailable`                                      | Android: the voice data for the language is not installed yet                                                            |
+| `invalid_file`                                              | The file of `synthesizeToFile()` cannot be written                                                                       |
+| `canceled`                                                  | The work was canceled before it finished                                                                                 |
+| `unknown`                                                   | Anything else                                                                                                            |
 
 The constants are `ERROR_INVALID_ARGUMENT`, `ERROR_UNSUPPORTED`, `ERROR_NOT_READY`, `ERROR_TEXT_TOO_LONG`, `ERROR_SYNTHESIS`, `ERROR_SERVICE_ERROR`, `ERROR_AUDIO`, `ERROR_NETWORK`, `ERROR_TIMEOUT`, `ERROR_LANGUAGE_UNAVAILABLE`, `ERROR_INVALID_FILE`, `ERROR_CANCELED` and `ERROR_UNKNOWN`. iOS never emits `text_too_long`. The other `ERROR_*` constants of the module belong to speech to text.
 
-### SSML, pronunciations and markers (iOS)
+### Reacting to a failure
+
+Decide from the `code`. The message is for the log. A listener on `completed` is enough, because a failure always arrives there:
+
+```javascript
+let lastOptions = null;
+
+function say(options) {
+  lastOptions = options;
+  speech.startSpeaking(options);
+}
+
+speech.addEventListener('completed', (e) => {
+  if (e.success) {
+    return;
+  }
+  switch (e.code) {
+    case speech.ERROR_NOT_READY:
+      // Android is still connecting to the engine: try once more shortly
+      setTimeout(() => speech.startSpeaking(lastOptions), 1000);
+      break;
+    case speech.ERROR_UNSUPPORTED:
+      // For example SSML on iOS 15: say the same text without SSML
+      speech.startSpeaking({ ...lastOptions, ssml: false, text: stripTags(lastOptions.text) });
+      break;
+    default:
+      // Nothing else is worth repeating: show the text instead
+      showTextOnScreen(lastOptions.text);
+  }
+});
+```
+
+`stripTags` and `showTextOnScreen` are your own functions. Do not retry in a loop. One retry after `not_ready` covers a slow engine; any other code fails again with the same input.
+
+## Only on iOS
+
+### SSML, pronunciations and markers
 
 With `ssml: true` (iOS 16), `text` is SSML:
 
@@ -694,7 +491,7 @@ With `ssml: true` (iOS 16), `text` is SSML:
 speech.startSpeaking({
   ssml: true,
   text: '<speak>Hello<break time="500ms"/>world</speak>'
-})
+});
 ```
 
 `pronunciations` speaks ranges of `text` with an IPA transcription:
@@ -703,35 +500,237 @@ speech.startSpeaking({
 speech.startSpeaking({
   text: 'tomato',
   pronunciations: [{ start: 0, end: 6, ipa: 'təˈmɑːtoʊ' }]
-})
+});
 ```
 
 The `marker` event (iOS 17) reports the synthesizer's markers while it speaks, and `synthesizeToFile({ markers: true })` returns them in `synthesized` (iOS 16). Each one is `{ kind, start, end }`, with `phoneme` or `bookmark` when they apply. `kind` is `word`, `sentence`, `paragraph`, `phoneme` or `bookmark`. It is called `kind` and not `type` because Titanium replaces `type` in an event with the event name.
 
-### Personal Voice (iOS 17)
+### Speaker wake: `speakerWakeDelay`
 
-```javascript
-speech.addEventListener('personalvoice', (e) => {
-  // e = { success, status, authorized }
-})
-speech.requestPersonalVoiceAuthorization()
-```
+The built-in speaker of an iPad powers down about two seconds after the last sound and starts cold with the next one. A cold start under the first word can click. When more than 1.8 seconds have passed since the last sound and the output is the built-in speaker, `startSpeaking()` plays silence and waits `speakerWakeDelay` seconds before the speech begins. The silence keeps playing until the speech ends.
 
-`status` is `not_determined`, `denied`, `unsupported` or `authorized`; `getPersonalVoiceStatus()` returns the same value without asking. The app needs `NSPersonalVoiceUsageDescription` in the iOS `plist` of `tiapp.xml`. `requestVoices({ includeNovelty: true })` adds the novelty voices, and a Personal Voice has `personal: true`. The `voiceschanged` event fires with `{ success: true }` when the installed voices change.
+The default is 0.2 seconds. It adds 0.3 to 0.4 seconds to a speech that follows a pause (measured from the call to the voice on an iPad), and nothing to speeches that follow each other or to speech through headphones. `speakerWakeDelay: 0` turns it off. Android ignores the option.
 
-### Voices: new fields
+The click is intermittent, and the evidence that the wake prevents it comes from listening on one iPad (9th generation, iOS 27): no click in the ten cases with a warm speaker or a silent lead-in, against four clicks in seven cold starts without it.
 
-Both platforms return `id`, `name`, `language`, `quality` and `networkRequired`. iOS adds `gender` (`male`, `female` or `unspecified`), `novelty` and `personal`. Android adds `installed`, `latency` and `features`, and has no `gender`, `novelty` or `personal`. The Android `name` is the language followed by the engine's own name in parentheses, because Android voices have no first name. `requestVoices({ includeNetwork: true, includeNotInstalled: true })` on Android adds the voices that need the network and the ones whose data is not on the device.
+An app that answers at once to a tap, such as a game that calls a card, can trade the click protection for speed with `speakerWakeDelay: 0`.
 
-### Prerecorded audio (Android)
+### Warm-up
+
+The speech engine needs about two seconds to answer the first speech after the app opens. Creating the proxy starts a silent speech with the default voice that pays that cost, and `warmUp()` repeats it for apps that create the proxy late.
+
+## Only on Android
+
+### Prerecorded audio
 
 `addSpeech(text, source)` plays an audio file when the text is spoken, and `addEarcon(name, source)` registers a short sound that `playEarcon(name, { queue })` plays. `source` is the name, without extension, of a file in `platform/android/res/raw`. A path does not work: the speech engine is another app and cannot open the folder of yours. The answer arrives in a `registered` event with `success`, `kind` (`speech` or `earcon`), `key` and, on failure, `code` and `message`. Playing a name nobody registered fires `error`.
 
+```javascript
+speech.addEventListener('registered', (e) => {
+  if (e.success && e.kind === 'earcon') {
+    speech.playEarcon('chime');
+    speech.startSpeaking({ text: 'Your order is ready.', voice: 'en-US', queue: true });
+  }
+});
+speech.addEarcon('chime', 'chime'); // platform/android/res/raw/chime.mp3
+```
+
 On iOS `addSpeech()` and `addEarcon()` answer `registered` with `code: 'unsupported'`, and `playEarcon()` answers `completed` with the same code.
 
-### Pause and resume on Android
+### Background
 
-Android's `TextToSpeech` has no pause. `pauseSpeaking()` stops the speech at once, even in the middle of a word, and remembers the position of the last word. `continueSpeaking()` says the rest of the text from the start of that word, so a word cut in half is repeated whole. That needs an engine that reports word positions. Without them `paused` carries `success: false` and the code `unsupported`. `SPEECH_BOUNDARY_IMMEDIATE` and `SPEECH_BOUNDARY_WORD` are 0 and 1 on both platforms; on Android both were 0 before.
+Android stops the speech and drops the queue when the app's activity stops, for example when the user leaves the app.
+
+### Engine information
+
+`getEngineInfo()`, `getDiagnostics()`, `setEngine(packageName)`, `isLanguageAvailable(language)`, `isNetworkRequired(language)`, `preloadVoiceData(language)`, `getEstimatedDuration(text, rate)`, `getModernLanguages()` and `isTTSReady()` read or change the engine. They wait for the engine while it connects, so call them after the `initialized` event and not from a tap.
+
+## Recipes
+
+### Voice picker that remembers the choice
+
+```javascript
+const utterance = require('bencoding.utterance');
+const speech = utterance.createSpeech();
+
+let attempts = 0;
+
+speech.addEventListener('voices', ({ voices }) => {
+  // On a cold start Android can answer with an empty list while the engine connects
+  if (voices.length === 0 && attempts < 3) {
+    attempts += 1;
+    setTimeout(() => speech.requestVoices(), 1500);
+    return;
+  }
+
+  const rank = { premium: 0, enhanced: 1, default: 2 };
+  const spanish = voices
+    .filter((voice) => voice.language.toLowerCase().startsWith('es'))
+    .sort((a, b) => rank[a.quality] - rank[b.quality]);
+
+  const dialog = Ti.UI.createOptionDialog({
+    title: 'Pick a voice',
+    options: spanish.map((voice) => `${voice.name || voice.id} (${voice.language}, ${voice.quality})`)
+  });
+  dialog.addEventListener('click', (e) => {
+    if (e.cancel) {
+      return;
+    }
+    Ti.App.Properties.setString('voiceId', spanish[e.index].id);
+    speech.startSpeaking({ text: 'Así suena esta voz.', voiceId: spanish[e.index].id, voice: 'es-MX' });
+  });
+  dialog.show();
+});
+
+speech.requestVoices();
+```
+
+### Read a text aloud with the word highlighted
+
+The label shows the whole text, and every `wordstart` paints the word that is about to sound:
+
+```javascript
+const utterance = require('bencoding.utterance');
+const speech = utterance.createSpeech();
+
+const TEXT = 'Utterance reads this paragraph aloud, and each word lights up as it is spoken.';
+const label = Ti.UI.createLabel({ text: TEXT, left: 16, right: 16, font: { fontSize: 20 } });
+
+speech.addEventListener('wordstart', (e) => {
+  label.attributedString = Ti.UI.createAttributedString({
+    text: TEXT,
+    attributes: [{
+      value: '#FFE08A',
+      range: [e.start, e.end - e.start],
+      type: Ti.UI.ATTRIBUTE_BACKGROUND_COLOR
+    }]
+  });
+});
+
+speech.addEventListener('completed', () => {
+  label.attributedString = Ti.UI.createAttributedString({ text: TEXT, attributes: [] });
+});
+
+speech.startSpeaking({ text: TEXT, voice: 'en-US', bestVoice: true });
+```
+
+The same code runs on both platforms. The demo app under `ios/example` and `android/example` does the same with a toggle.
+
+### Save a speech and play it back
+
+```javascript
+const speech = utterance.createSpeech();
+
+speech.addEventListener('synthesized', (e) => {
+  if (!e.success) {
+    Ti.UI.createAlertDialog({ title: 'Could not save', message: `${e.code}: ${e.message}` }).show();
+    return;
+  }
+  console.log(`Saved ${e.duration.toFixed(1)} s at ${e.sampleRate} Hz`);
+  const sound = Ti.Media.createSound({ url: e.file.indexOf('file') === 0 ? e.file : 'file://' + e.file });
+  sound.addEventListener('complete', () => sound.release());
+  sound.play();
+});
+
+speech.synthesizeToFile({
+  voice: 'en-US',
+  file: Ti.Filesystem.applicationDataDirectory + 'sentence.wav',
+  text: 'This sentence is saved to a file and then played back.'
+});
+```
+
+### Announcements in two languages with a pause
+
+One `completed` marks the end of the whole queue, so the screen can react once:
+
+```javascript
+speech.addEventListener('completed', (e) => {
+  if (e.success) {
+    banner.hide();
+  }
+});
+
+banner.show();
+speech.startSpeaking({ text: 'Attention, please. Table three has won.', voice: 'en-US' });
+speech.playSilence(500, { queue: true });
+speech.startSpeaking({ text: 'Atención. La mesa tres ganó.', voice: 'es-MX', queue: true });
+```
+
+### A spoken prompt over music
+
+```javascript
+function announce(text) {
+  speech.startSpeaking({
+    text,
+    voice: 'en-US',
+    audioFocus: true,          // Android: lower the music while it speaks
+    audioUsage: 'assistant'    // iOS: spoken audio session. Android: assistant attributes
+  });
+}
+
+announce('Recording saved.');
+```
+
+### A game that speaks on every tap
+
+Each call cuts off the previous one, so a quick succession of taps always says the last. When the first word must be heard at once after a pause, turn the speaker wake off:
+
+```javascript
+const speech = utterance.createSpeech();
+
+function call(card) {
+  speech.startSpeaking({
+    text: card,
+    voice: 'es-MX',
+    bestVoice: true,
+    speakerWakeDelay: 0    // iOS: start without the 0.2 s lead-in
+  });
+}
+```
+
+### Speech in both directions
+
+Speech recognition and synthesis share one microphone and one speaker, so stop listening before speaking. The [speech-to-text guide](speech_to_text.md#integration-with-text-to-speech) has a conversation example.
+
+## Differences between platforms
+
+| Area                                | iOS                                                   | Android                                                                        |
+| ----------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Engine                              | AVSpeechSynthesizer                                   | android.speech.tts.TextToSpeech                                                |
+| Rate range                          | 0 to 1                                                | 0.1 to 3                                                                       |
+| `voice`                             | A language code, or `auto` to detect it from the text | A language code or an engine voice name                                        |
+| `getModernVoices()`                 | `name`, `language`, `identifier`, numeric `quality`   | `name`, `locale`, `language`, `country`, `quality` up to 500                   |
+| Pause                               | Native, immediate or at the next word                 | Emulated: cuts at once and repeats the word that was cut. Needs word positions |
+| `wordstart`                         | Always                                                | Android 8 or later, with an engine that reports ranges                         |
+| `pan`                               | Ignored                                               | Works                                                                          |
+| Long text                           | No limit                                              | Cut into sentences above 4000 characters                                       |
+| SSML, IPA, markers, Personal Voice  | Yes                                                   | No                                                                             |
+| Earcons and prerecorded audio       | `unsupported`                                         | Yes                                                                            |
+| `speakerWakeDelay`, `warmUp()`      | Yes                                                   | Ignored. The engine warms up on its own                                        |
+| `stopSpeaking()`                    | Fires `stopped`, then `canceled`                      | Fires `stopped`. `cancelSpeaking()` fires `canceled`                           |
+| `playSilence()`                     | Fires `started` and `completed`                       | Fires neither and does not count as speaking                                   |
+| `initialized` event, engine methods | No                                                    | Yes                                                                            |
+
+## Performance and the speaker
+
+- The first speech after the app opens can take up to two seconds to sound on iOS while the engine starts. Creating the proxy early pays that cost with a silent speech. See [Warm-up](#warm-up).
+- The first speech of a session with `bestVoice: true` searches the installed voices, which costs 110 to 200 ms once per language.
+- After a pause longer than 1.8 seconds, the iPad's built-in speaker needs a wake that adds 0.3 to 0.4 seconds. See [Speaker wake](#speaker-wake-speakerwakedelay).
+- On Android, `getModernVoices()` and the engine methods wait for the engine on the calling thread. Use `requestVoices()` from a tap.
+- Cache what you read from `requestVoices()`. The list changes only when the user installs or removes a voice, and `voiceschanged` tells you on iOS.
+
+## Best practices
+
+1. Create the proxy once, at startup, and keep it in a module level constant. See [Keep a reference to the proxy](#keep-a-reference-to-the-proxy).
+2. Add the listeners before the first call. An event fires only when a listener exists at that moment.
+3. Use the rate constants and the `voiceId` of `requestVoices()`, so the same code runs on both platforms.
+4. Decide from `event.code` in `completed`, and show the text when speech is not available.
+5. Pass `bestVoice: true` when the user has not picked a voice.
+6. Use `queue: true` to say several parts in order, and `playSilence()` for pauses between them.
+7. Call `requestVoices()` for pickers. On Android `getModernVoices()` can freeze a tap while the engine connects.
+8. Test speech on the speaker as well as with headphones. The speaker wake applies only there.
+
+## Tested and not tested
 
 ### What was compiled but not tried
 
@@ -740,548 +739,6 @@ These are in the code and were not run on a device: Android 12 and earlier; any 
 ### What is left out
 
 `outputChannels` (it needs session objects Titanium cannot build), the raw stream of audio buffers (`synthesizeToFile()` covers it without sending megabytes through events), `setOnUtteranceCompletedListener` and `areDefaultsEnforced` (obsolete on Android), and the macOS-only Alex voice identifier.
-
-## Multiple languages
-
-### Language detection and voice selection
-
-```javascript
-const utterance = require('bencoding.utterance');
-
-class MultiLanguageTTS {
-  constructor() {
-    this.speech = utterance.createSpeech();
-    this.languageMap = this.buildLanguageMap();
-  }
-
-  buildLanguageMap() {
-    const map = new Map();
-
-    try {
-      const voices = this.speech.getModernVoices();
-
-      voices.forEach(voice => {
-        const lang = (voice.language || voice.locale || '').toLowerCase();
-        if (lang) {
-          const languageCode = lang.split('-')[0];
-
-          if (!map.has(languageCode)) {
-            map.set(languageCode, []);
-          }
-
-          map.get(languageCode).push(voice);
-        }
-      });
-
-      // Sort by quality within each language
-      map.forEach((voices, lang) => {
-        voices.sort((a, b) => (b.quality || 0) - (a.quality || 0));
-      });
-
-    } catch (error) {
-      console.warn("Using fallback language support");
-      // Fallback language mapping
-      map.set('en', [{ name: 'en-US' }]);
-      map.set('es', [{ name: 'es-ES' }]);
-      map.set('fr', [{ name: 'fr-FR' }]);
-      map.set('de', [{ name: 'de-DE' }]);
-    }
-
-    return map;
-  }
-
-  detectLanguage(text) {
-    // Simple language detection based on common words
-    const languagePatterns = {
-      'es': /\b(hola|gracias|por favor|adiós|sí|no|donde|como|que|el|la|de|en|un|es|se|no|te|lo|le|da|su|por|son|con|para|una|tienen|él|sobre|todo|pero|más|hasta|muy|ser|hacer|poder|decir|ir|tener|estar|ver|dar|saber|querer|llegar|pasar|deber|poner|parecer|quedar|seguir|encontrar|llamar|venir|sentir|salir|entrar|trabajar|escribir|perder|producir|existir|ocurrir|recibir|cambiar|necesitar|creer|conocer|conseguir|empezar|buscar|mantener|hablar|realizar|formar|volver|obtener|permitir|ofrecer|tratar|suponer|lograr|explicar|dirigir|continuar|servir|crear|considerar|morir|resultar|establecer|convertir|llevar|nacer|acabar|presentar|aparecer|constituir|abrir|esperar|cumplir|desarrollar|vivir|incluir|tirar|utilizar|observar|comprar|mostrar|aplicar|presentar|ayudar|representar|corresponder|recordar|estudiar|aceptar|descubrir|caer|determinar|comenzar|participar|levantar|acercarse|partir|descubrir|elegir|aprender|entender|construir|ganar|adelante|vender|abandonar|decidir|proponer|imaginar|conseguir|guardar|descender|señalar|escuchar)/gi,
-      'fr': /\b(bonjour|merci|s'il vous plaît|au revoir|oui|non|où|comment|que|le|la|de|en|un|est|se|ne|te|lo|lui|da|son|par|sont|avec|pour|une|ont|il|sur|tout|mais|plus|jusqu|très|être|faire|pouvoir|dire|aller|avoir|voir|donner|savoir|vouloir|arriver|passer|devoir|mettre|paraître|rester|suivre|trouver|appeler|venir|sentir|sortir|entrer|travailler|écrire|perdre|produire|exister|se passer|recevoir|changer|avoir besoin|croire|connaître|obtenir|commencer|suchen|maintenir|parler|réaliser|former|retourner|obtenir|permettre|offrir|traiter|supposer|réussir|expliquer|diriger|continuer|servir|créer|considérer|mourir|résulter|établir|convertir|porter|naître|finir|présenter|apparaître|darstellen|ouvrir|attendre|accomplir|développer|vivre|inclure|tirer|utiliser|observer|acheter|montrer|appliquer|présenter|aider|représenter|correspondre|se rappeler|étudier|accepter|découvrir|tomber|bestimmen|commencer|participer|lever|s'approcher|partir|découvrir|choisir|apprendre|comprendre|construire|gagner|en avant|vendre|abandonner|décider|proposer|imaginer|obtenir|garder|descendre|signaler|écouter)/gi,
-      'de': /\b(hallo|danke|bitte|auf wiedersehen|ja|nein|wo|wie|was|der|die|das|von|in|ein|ist|sich|ne|du|es|ihm|da|sein|mit|für|eine|haben|er|auf|alles|aber|mehr|bis|sehr|sein|machen|können|sagen|gehen|haben|sehen|geben|wissen|wollen|kommen|gehen|müssen|setzen|scheinen|bleiben|folgen|finden|rufen|kommen|fühlen|ausgehen|eingeben|arbeiten|schreiben|verlieren|produzieren|exisitieren|passieren|erhalten|ändern|brauchen|glauben|kennen|bekommen|anfangen|suchen|behalten|sprechen|realisieren|bilden|zurückkehren|erhalten|erlauben|anbieten|behandeln|annehmen|erreichen|erklären|leiten|fortsetzen|dienen|erstellen|betrachten|sterben|resultieren|etablieren|umwandeln|tragen|geboren werden|beenden|präsentieren|erscheinen|darstellen|öffnen|warten|erfüllen|entwickeln|leben|einschließen|ziehen|benutzen|beobachten|kaufen|zeigen|anwenden|präsentieren|helfen|vertreten|entsprechen|erinnern|studieren|akzeptieren|entdecken|fallen|bestimmen|beginnen|teilnehmen|heben|sich nähern|abreisen|entdecken|wählen|lernen|verstehen|bauen|gewinnen|vorwärts|verkaufen|verlassen|entscheiden|vorschlagen|sich vorstellen|bekommen|behalten|absteigen|zeigen|hören)/gi
-    };
-
-    let bestMatch = 'en';
-    let bestScore = 0;
-
-    Object.keys(languagePatterns).forEach(lang => {
-      const matches = text.match(languagePatterns[lang]);
-      const score = matches ? matches.length : 0;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = lang;
-      }
-    });
-
-    return bestMatch;
-  }
-
-  speakWithAutoLanguage(text, options = {}) {
-    const detectedLang = options.language || this.detectLanguage(text);
-    console.log(`Detected language: ${detectedLang}`);
-
-    const voicesForLang = this.languageMap.get(detectedLang);
-    let selectedVoice = null;
-
-    if (voicesForLang && voicesForLang.length > 0) {
-      // Select best voice for the language
-      selectedVoice = voicesForLang[0]; // Already sorted by quality
-      console.log(`Selected voice: ${selectedVoice.name} (Quality: ${selectedVoice.quality || 'Unknown'})`);
-    }
-
-    const speechConfig = {
-      text,
-      rate: options.rate || this.speech.DEFAULT_SPEECH_RATE,
-      ...options
-    };
-
-    if (selectedVoice) {
-      speechConfig.voice = selectedVoice.name;
-    }
-
-    this.speech.startSpeaking(speechConfig);
-  }
-
-  getAvailableLanguages() {
-    return Array.from(this.languageMap.keys());
-  }
-
-  getVoicesForLanguage(language) {
-    return this.languageMap.get(language) || [];
-  }
-}
-
-// Usage Examples
-const multiLangTTS = new MultiLanguageTTS();
-
-// Auto-detect language and speak
-multiLangTTS.speakWithAutoLanguage("Hello, this should be detected as English");
-multiLangTTS.speakWithAutoLanguage("Hola, esto debería detectarse como español");
-multiLangTTS.speakWithAutoLanguage("Bonjour, ceci devrait être détecté comme français");
-
-// Explicitly specify language
-multiLangTTS.speakWithAutoLanguage(
-  "This is explicitly English",
-  { language: 'en', rate: multiLangTTS.speech.SLOW_SPEECH_RATE }
-);
-
-// List available languages
-console.log("Available languages:", multiLangTTS.getAvailableLanguages());
-
-// Get voices for specific language
-const spanishVoices = multiLangTTS.getVoicesForLanguage('es');
-console.log("Spanish voices:", spanishVoices.map(v => v.name));
-```
-
-## Platform compatibility and migration
-
-### Platform-specific options
-
-```javascript
-const utterance = require('bencoding.utterance');
-const speech = utterance.createSpeech();
-
-// Universal configuration that works on both platforms
-const universalConfig = {
-  text: "This configuration works perfectly on both iOS and Android",
-  rate: speech.DEFAULT_SPEECH_RATE  // Consistent across platforms
-};
-
-// Platform-specific enhancements
-if (Ti.Platform.osname === 'iphone' || Ti.Platform.osname === 'ipad') {
-  // iOS-specific features
-  universalConfig.volume = 0.9;
-  universalConfig.preUtteranceDelay = 0.1;
-  universalConfig.postUtteranceDelay = 0.2;
-} else if (Ti.Platform.osname === 'android') {
-  // Android-specific features
-  universalConfig.pitch = 1.0;
-}
-
-speech.startSpeaking(universalConfig);
-```
-
-### Migrating from v2.x to v3.0
-
-```javascript
-// OLD v2.x approach (platform inconsistent)
-function speakOldWay(text, speed) {
-  let rate;
-
-  if (speed === 'slow') {
-    rate = Ti.Platform.osname === 'iphone' ? 0.3 : 0.6;
-  } else if (speed === 'fast') {
-    rate = Ti.Platform.osname === 'iphone' ? 0.8 : 1.5;
-  } else {
-    rate = Ti.Platform.osname === 'iphone' ? 0.5 : 1.0;
-  }
-
-  speech.startSpeaking({ text, rate });
-}
-
-// NEW v3.0 approach (cross-platform consistent)
-function speakNewWay(text, speed) {
-  let rate;
-
-  switch (speed) {
-    case 'slow':
-      rate = speech.SLOW_SPEECH_RATE;
-      break;
-    case 'fast':
-      rate = speech.FAST_SPEECH_RATE;
-      break;
-    default:
-      rate = speech.DEFAULT_SPEECH_RATE;
-      break;
-  }
-
-  speech.startSpeaking({ text, rate });
-}
-
-// Usage (both sound the same across platforms now!)
-speakNewWay("This speech sounds consistently slow on both platforms", 'slow');
-speakNewWay("This speech sounds consistently fast on both platforms", 'fast');
-```
-
-## Speech rate constants
-
-### Cross-platform constants (recommended)
-
-```javascript
-const speech = utterance.createSpeech();
-
-// Perceptual Equivalence - Sounds the same across platforms
-const rates = {
-  verySlowRate: speech.VERY_SLOW_SPEECH_RATE,    // Accessibility speed
-  slowRate: speech.SLOW_SPEECH_RATE,             // Careful listening
-  normalRate: speech.DEFAULT_SPEECH_RATE,        // Standard speed
-  fastRate: speech.FAST_SPEECH_RATE,             // Efficient reading
-  veryFastRate: speech.VERY_FAST_SPEECH_RATE     // Quick consumption
-};
-
-// Mathematical Equivalence - Exact mathematical mapping
-const mathRates = {
-  mathVerySlowRate: speech.MATH_VERY_SLOW_SPEECH_RATE,
-  mathSlowRate: speech.MATH_SLOW_SPEECH_RATE,
-  mathFastRate: speech.MATH_FAST_SPEECH_RATE,
-  mathVeryFastRate: speech.MATH_VERY_FAST_SPEECH_RATE
-};
-
-// Legacy Constants (still available)
-const legacyRates = {
-  minRate: speech.MIN_SPEECH_RATE,               // Platform minimum
-  maxRate: speech.MAX_SPEECH_RATE                // Platform maximum
-};
-```
-
-### Comparing rates
-
-```javascript
-const speech = utterance.createSpeech();
-
-// Demonstrate different rate constants
-const rateDemo = [
-  { text: "This is very slow speech for accessibility", rate: speech.VERY_SLOW_SPEECH_RATE },
-  { text: "This is slow speech for careful listening", rate: speech.SLOW_SPEECH_RATE },
-  { text: "This is normal speech at default speed", rate: speech.DEFAULT_SPEECH_RATE },
-  { text: "This is fast speech for efficient reading", rate: speech.FAST_SPEECH_RATE },
-  { text: "This is very fast speech for quick consumption", rate: speech.VERY_FAST_SPEECH_RATE }
-];
-
-// Play each demo with a delay
-rateDemo.forEach((demo, index) => {
-  setTimeout(() => {
-    console.log(`Playing rate demo ${index + 1}: ${demo.rate}`);
-    speech.startSpeaking(demo);
-  }, index * 3000); // 3 second delay between each
-});
-```
-
-## Performance
-
-### TTS warm-up on Android
-
-```javascript
-const utterance = require('bencoding.utterance');
-
-class OptimizedSpeechManager {
-  constructor() {
-    this.speech = utterance.createSpeech();
-    this.isOptimized = false;
-    this.initializePerformance();
-  }
-
-  initializePerformance() {
-    // Modern TTS initialization (no warm-up needed)
-    console.log("✅ TTS performance ready!");
-    this.isOptimized = true;
-  }
-
-  speak(text, options = {}) {
-    this.speech.startSpeaking({
-      text,
-      rate: options.rate || this.speech.DEFAULT_SPEECH_RATE,
-      ...options
-    });
-  }
-}
-
-// Usage
-const optimizedSpeech = new OptimizedSpeechManager();
-
-// This will wait for optimization before speaking
-optimizedSpeech.speak("This speech is optimized for best performance!");
-```
-
-### Voice caching
-
-```javascript
-class CachedVoiceManager {
-  constructor() {
-    this.speech = utterance.createSpeech();
-    this.voiceCache = new Map();
-    this.modernVoicesCache = null;
-    this.initializeVoiceCache();
-  }
-
-  initializeVoiceCache() {
-    try {
-      this.modernVoicesCache = this.speech.getModernVoices();
-
-      // Group voices by language for quick lookup
-      this.modernVoicesCache.forEach(voice => {
-        const lang = (voice.language || voice.locale || '').toLowerCase();
-        const langCode = lang.split('-')[0];
-
-        if (!this.voiceCache.has(langCode)) {
-          this.voiceCache.set(langCode, []);
-        }
-
-        this.voiceCache.get(langCode).push(voice);
-      });
-
-      // Sort by quality within each language
-      this.voiceCache.forEach(voices => {
-        voices.sort((a, b) => (b.quality || 0) - (a.quality || 0));
-      });
-
-      console.log(`🗣️ Cached ${this.modernVoicesCache.length} voices for ${this.voiceCache.size} languages`);
-
-    } catch (error) {
-      console.warn("Using basic voice caching");
-      this.voiceCache.set('en', [{ name: 'default' }]);
-    }
-  }
-
-  getBestVoice(language = 'en', minQuality = 200) {
-    const langVoices = this.voiceCache.get(language) || [];
-
-    const qualityVoices = langVoices.filter(voice =>
-      (voice.quality || 0) >= minQuality
-    );
-
-    return qualityVoices.length > 0 ? qualityVoices[0] : langVoices[0];
-  }
-
-  speakWithCachedVoice(text, language = 'en', options = {}) {
-    const bestVoice = this.getBestVoice(language, options.minQuality);
-
-    const config = {
-      text,
-      rate: options.rate || this.speech.DEFAULT_SPEECH_RATE,
-      ...options
-    };
-
-    if (bestVoice) {
-      config.voice = bestVoice.name;
-      console.log(`🎤 Using cached voice: ${bestVoice.name} (Quality: ${bestVoice.quality || 'Unknown'})`);
-    }
-
-    this.speech.startSpeaking(config);
-  }
-}
-
-// Usage
-const cachedVoiceManager = new CachedVoiceManager();
-
-// Fast voice selection using cache
-cachedVoiceManager.speakWithCachedVoice("Fast cached voice selection!", 'en');
-cachedVoiceManager.speakWithCachedVoice("Selección rápida de voz en caché!", 'es');
-```
-
-## Error handling and fallbacks
-
-```javascript
-const utterance = require('bencoding.utterance');
-
-class RobustTTSManager {
-  constructor() {
-    this.speech = utterance.createSpeech();
-    this.setupErrorHandling();
-    this.fallbackOptions = {
-      rate: 0.5,
-      maxRetries: 3,
-      retryDelay: 1000
-    };
-  }
-
-  setupErrorHandling() {
-    this.speech.addEventListener('error', (event) => {
-      console.error("TTS Error:", event.error);
-      this.handleTTSError(event);
-    });
-  }
-
-  handleTTSError(event) {
-    // Implement error recovery strategies
-    console.log("🔄 Attempting TTS error recovery...");
-
-    // You can implement specific error handling here
-    setTimeout(() => {
-      this.speakWithFallback("Error recovered. TTS is ready again.");
-    }, 1000);
-  }
-
-  async speakWithFallback(text, options = {}, retryCount = 0) {
-    try {
-      // Check if TTS is supported
-      if (!this.speech.isSupported()) {
-        throw new Error("TTS not supported on this device");
-      }
-
-      // Check if already speaking (avoid conflicts)
-      if (this.speech.isSpeaking()) {
-        console.log("🔄 Speech in progress, waiting...");
-        await this.waitForSpeechEnd();
-      }
-
-      // Prepare speech configuration
-      const config = {
-        text,
-        rate: options.rate || this.speech.DEFAULT_SPEECH_RATE,
-        ...options
-      };
-
-      // Try modern voice selection first
-      try {
-        const voices = this.speech.getModernVoices();
-        if (voices && voices.length > 0 && options.language) {
-          const voice = voices.find(v =>
-            (v.language || v.locale || '').includes(options.language)
-          );
-          if (voice) {
-            config.voice = voice.name;
-          }
-        }
-      } catch (voiceError) {
-        console.warn("Modern voice selection failed, using default");
-      }
-
-      this.speech.startSpeaking(config);
-
-    } catch (error) {
-      console.error(`TTS Error (attempt ${retryCount + 1}):`, error.message);
-
-      if (retryCount < this.fallbackOptions.maxRetries) {
-        console.log(`🔄 Retrying in ${this.fallbackOptions.retryDelay}ms...`);
-
-        setTimeout(() => {
-          this.speakWithFallback(text, options, retryCount + 1);
-        }, this.fallbackOptions.retryDelay);
-      } else {
-        console.error("❌ All TTS retry attempts failed");
-        this.onTTSFailure(text, error);
-      }
-    }
-  }
-
-  waitForSpeechEnd(timeout = 5000) {
-    return new Promise((resolve, reject) => {
-      const startTime = Date.now();
-
-      const checkSpeechEnd = () => {
-        if (!this.speech.isSpeaking()) {
-          resolve();
-        } else if (Date.now() - startTime > timeout) {
-          reject(new Error("Speech timeout"));
-        } else {
-          setTimeout(checkSpeechEnd, 100);
-        }
-      };
-
-      checkSpeechEnd();
-    });
-  }
-
-  onTTSFailure(text, error) {
-    // Fallback strategy - could be visual feedback, logging, etc.
-    console.log("💬 TTS Failed, showing text visually:", text);
-
-    // You could show a dialog, notification, or other visual feedback
-    const alertDialog = Ti.UI.createAlertDialog({
-      title: 'Speech Not Available',
-      message: text,
-      ok: 'OK'
-    });
-    alertDialog.show();
-  }
-
-  quickSpeak(text) {
-    // Simple speak method with automatic fallback
-    this.speakWithFallback(text, { rate: this.speech.DEFAULT_SPEECH_RATE });
-  }
-}
-
-// Usage
-const robustTTS = new RobustTTSManager();
-
-// Robust speech with automatic error handling and retries
-robustTTS.speakWithFallback("This speech has robust error handling and automatic fallbacks!");
-
-// Quick speech for simple use cases
-robustTTS.quickSpeak("Quick and safe speech!");
-```
-
-## Best practices
-
-### Do
-
-1. Use the cross-platform constants (`speech.SLOW_SPEECH_RATE` and the rest) so rates match on both platforms.
-2. Create the instance early. The Android engine warms up on its own when `createSpeech()` connects; create one instance at startup and reuse it.
-3. Check `speech.isSpeaking()` before starting new speech.
-4. Cache voice selection results instead of repeating the lookup.
-5. Handle errors and provide a fallback.
-6. Use `requestVoices()` for voice pickers. It answers with an event and never blocks the UI (v3.2).
-
-```javascript
-// ✅ Good practice
-const speech = utterance.createSpeech();
-
-if (!speech.isSpeaking()) {
-  speech.startSpeaking({
-    text: "Using best practices!",
-    rate: speech.DEFAULT_SPEECH_RATE  // Cross-platform constant
-  });
-}
-```
-
-### Don't
-
-1. Don't calculate rates per platform with manual `if (iOS)` checks.
-2. Don't create multiple instances; reuse one.
-3. Don't ignore error events.
-4. Don't block the UI; use events instead of blocking operations.
-5. Don't call `getModernVoices()` from a tap on Android. It waits for the engine on the calling thread; use `requestVoices()` instead.
-
-```javascript
-// ❌ Bad practice
-if (Ti.Platform.osname === 'iphone') {
-  rate = 0.5;
-} else {
-  rate = 1.0;
-}
-
-// ✅ Good practice
-rate = speech.DEFAULT_SPEECH_RATE;
-```
 
 ## License
 
