@@ -3,6 +3,8 @@
  *
  * Copy this file to Resources/app.js of a Titanium app that includes the bencoding.utterance module.
  *
+ * Also copy semantic.colors.json, which sits next to this file, to the same Resources folder: it holds the light and dark colors.
+ *
  * tiapp.xml needs:
  *
  *   <property name="ti.ui.defaultunit" type="string">dp</property>
@@ -32,18 +34,20 @@ const ANDROID = Ti.Platform.osname === 'android'
 // Design tokens
 // =============================================================================
 
+// Colors that change with light and dark mode are semantic names, defined in semantic.colors.json. The accents are the
+// same in both modes and stay literal, because a gradient needs real colors.
 const C = {
-  bg: '#0B1020',
-  surface: '#141A2E',
-  surface2: '#1D2540',
-  line: '#2A3354',
-  text: '#F4F6FF',
-  muted: '#8C96B8',
-  accent: '#7C5CFF',
-  accent2: '#22D3C5',
-  danger: '#FF6B8A',
-  dangerSoft: '#3A1F33',
-  success: '#3DDC97'
+  bg: 'appBackground',
+  surface: 'surface',
+  surface2: 'surfaceRaised',
+  line: 'divider',
+  text: 'textPrimary',
+  muted: 'textMuted',
+  danger: 'errorColor',
+  dangerSoft: 'errorSurface',
+  accent: '#6B4DF2',
+  accent2: '#0FA89B',
+  success: '#1E9E6A'
 }
 
 const gradient = () => ({
@@ -148,7 +152,34 @@ function chipRow(items, selected, onSelect) {
     entry.text.color = on ? '#FFFFFF' : C.muted
   })
   paint(selected)
-  return { view: row, select: paint }
+  return { view: row, select: paint, setName: (index, name) => { chips[index].text.text = name } }
+}
+
+// Chips that switch on and off on their own; `values` holds the current state by key
+function toggleRow(items) {
+  const row = Ti.UI.createView({ layout: 'horizontal', height: Ti.UI.SIZE, left: 18, right: 18, top: 6 })
+  const values = {}
+  items.forEach((item) => {
+    values[item.key] = false
+    const chip = Ti.UI.createView({ width: Ti.UI.SIZE, height: 34, left: 0, right: 8, top: 8, borderRadius: 17, borderWidth: 1 })
+    const text = label(item.name, { width: Ti.UI.SIZE, left: 14, right: 14, font: { fontSize: 13, fontWeight: 'bold' }, touchEnabled: false })
+    chip.add(text)
+    const paint = () => {
+      chip.backgroundColor = values[item.key] ? C.accent2 : C.surface2
+      chip.borderColor = values[item.key] ? C.accent2 : C.line
+      text.color = values[item.key] ? '#FFFFFF' : C.muted
+    }
+    chip.addEventListener('click', () => {
+      if (state.listening || state.starting) {
+        return
+      }
+      values[item.key] = !values[item.key]
+      paint()
+    })
+    paint()
+    row.add(chip)
+  })
+  return { view: row, values }
 }
 
 // A gradient button; `danger` fades a solid layer over the gradient, so the change never redraws the gradient itself
@@ -214,9 +245,10 @@ const spacer = (height = 32) => Ti.UI.createView({ height, width: 1 })
 // =============================================================================
 
 const win = Ti.UI.createWindow(Object.assign({ backgroundColor: C.bg, layout: 'vertical', extendSafeArea: false },
-  ANDROID ? { windowSoftInputMode: Ti.UI.Android.SOFT_INPUT_ADJUST_PAN } : {}))
+  // The app draws its own header, so the action bar with the app name stays hidden
+  ANDROID ? { windowSoftInputMode: Ti.UI.Android.SOFT_INPUT_ADJUST_PAN, navBarHidden: true } : {}))
 if (IOS) {
-  win.statusBarStyle = Ti.UI.iOS.StatusBar.LIGHT_CONTENT
+  win.statusBarStyle = Ti.UI.iOS.StatusBar.DEFAULT
 }
 
 const header = Ti.UI.createView({ height: Ti.UI.SIZE, left: 20, right: 20, top: 10 })
@@ -472,6 +504,18 @@ languageCard.add(spacer(14))
 languageCard.top = 22
 listenPage.add(languageCard)
 
+// Each chip turns on one startSpeechToText() option
+const optionToggles = toggleRow([
+  { key: 'punctuation', name: 'Punctuation' },
+  { key: 'onDevice', name: 'On device' },
+  { key: 'search', name: 'Search hint' },
+  { key: 'words', name: 'Expected words' }
+])
+const optionsCard = card('Options')
+optionsCard.add(optionToggles.view)
+optionsCard.add(spacer(14))
+listenPage.add(optionsCard)
+
 const transcriptCard = card('Transcript')
 const heard = label('Your words will appear here.', { left: 18, right: 18, top: 10, color: C.muted, font: { fontSize: 22, fontWeight: 'bold' } })
 transcriptCard.add(heard)
@@ -565,12 +609,24 @@ function stopTicker() {
   }
 }
 
+// One call asks for the microphone and, on iOS, speech recognition too. The answer comes in the permissions event.
+let waitingForPermission = null
+
+stt.addEventListener('permissions', (event) => {
+  const callback = waitingForPermission
+  waitingForPermission = null
+  if (callback) {
+    callback(event.granted)
+  }
+})
+
 function ensureMicrophone(callback) {
-  if (!ANDROID || Ti.Android.hasPermission('android.permission.RECORD_AUDIO')) {
+  if (stt.getPermissionStatus().granted) {
     callback(true)
     return
   }
-  Ti.Android.requestPermissions(['android.permission.RECORD_AUDIO'], (e) => callback(e.success))
+  waitingForPermission = callback
+  stt.requestPermissions()
 }
 
 function toggleListening() {
@@ -597,7 +653,21 @@ function toggleListening() {
     state.starting = true
     listenStatus.text = 'Getting ready...'
     listenHint.text = ''
-    stt.startSpeechToText({ language: LANGUAGES[state.listenLanguage].code })
+    const options = { language: LANGUAGES[state.listenLanguage].code, audioLevelInterval: 80 }
+    if (optionToggles.values.punctuation) {
+      options.punctuation = true
+    }
+    if (optionToggles.values.onDevice) {
+      options.onDevice = 'prefer'
+    }
+    if (optionToggles.values.search) {
+      options.taskHint = stt.TASK_HINT_SEARCH
+    }
+    if (optionToggles.values.words) {
+      options.contextualStrings = COMMANDS.reduce((all, command) => all.concat(command.says), [])
+    }
+    heard.text = ''
+    stt.startSpeechToText(options)
   })
 }
 
@@ -612,20 +682,27 @@ function stopListening() {
   stt.stopRecording()
 }
 
-function friendly(message) {
-  if (/No speech detected/i.test(message)) {
-    return "I didn't catch that. Try again, a little closer to the microphone."
+// completed carries a stable `code` on failures, so the text shown never depends on the wording of the message
+function friendly(event) {
+  switch (event.code) {
+    case stt.ERROR_NO_SPEECH:
+      return "I didn't catch that. Try again, a little closer to the microphone."
+    case stt.ERROR_PERMISSION_DENIED:
+      return 'The microphone permission is off. Turn it on in the system settings to use speech recognition.'
+    case stt.ERROR_AUDIO:
+      return 'This device has no microphone available right now.'
+    case stt.ERROR_NETWORK:
+      return 'Speech recognition needs an internet connection.'
+    case stt.ERROR_LANGUAGE_UNSUPPORTED:
+    case stt.ERROR_LANGUAGE_UNAVAILABLE:
+      return 'Speech recognition is not available in this language on this device.'
+    case stt.ERROR_ON_DEVICE_UNAVAILABLE:
+      return 'This language cannot be recognized without a connection on this device. Turn off "On device".'
+    case stt.ERROR_BUSY:
+      return 'The speech recognizer is busy. Try again in a moment.'
+    default:
+      return event.message
   }
-  if (/permission/i.test(message)) {
-    return 'The microphone permission is off. Turn it on in the system settings to use speech recognition.'
-  }
-  if (/No audio input/i.test(message)) {
-    return 'This device has no microphone available right now.'
-  }
-  if (/Network/i.test(message)) {
-    return 'Speech recognition needs an internet connection.'
-  }
-  return message
 }
 
 function showTranscript(event) {
@@ -651,11 +728,13 @@ function showTranscript(event) {
 
 function matchCommand(alternatives) {
   const heardWords = alternatives.map((text) => String(text).toLowerCase().trim())
+  let matched = false
   COMMANDS.forEach((command, index) => {
     // The recognizer returns whole phrases ("next card please"), so look for the command inside them
     if (!heardWords.some((text) => command.says.some((phrase) => text.includes(phrase)))) {
       return
     }
+    matched = true
     const entry = tiles[index]
     entry.tile.borderColor = C.accent2
     entry.tile.animate({ transform: Ti.UI.create2DMatrix().scale(1.08), duration: 160, autoreverse: true })
@@ -663,6 +742,7 @@ function matchCommand(alternatives) {
       entry.tile.borderColor = C.line
     }, 1400)
   })
+  return matched
 }
 
 stt.addEventListener('started', () => {
@@ -670,23 +750,75 @@ stt.addEventListener('started', () => {
   startTicker()
 })
 
+// The text appears while the person is still talking, in grey until it is final. A command is acted on as soon as
+// a partial contains it: cancelRecording() drops the session without waiting for the final result.
+stt.addEventListener('partial', (event) => {
+  if (state.stopping) {
+    return
+  }
+  heard.text = event.text
+  heard.color = C.muted
+  if (matchCommand([event.text])) {
+    state.stopping = true
+    stopTicker()
+    stt.cancelRecording()
+  }
+})
+
+stt.addEventListener('canceled', () => {
+  stopTicker()
+  state.stopping = false
+  orb.transform = Ti.UI.create2DMatrix()
+  setListening(false)
+  listenStatus.text = 'Tap to speak'
+  listenHint.text = ''
+  if (heard.text) {
+    heard.color = C.text
+    readBack.visible = true
+  }
+})
+
+// level is 0 to 1 on both platforms, so the orb swells with the voice
+stt.addEventListener('audiolevel', (event) => {
+  if (state.listening) {
+    orb.transform = Ti.UI.create2DMatrix().scale(1 + event.level * 0.3)
+  }
+})
+
+// Marks the languages that can be recognized without a connection
+stt.addEventListener('languages', (event) => {
+  if (!event.checked) {
+    return
+  }
+  LANGUAGES.forEach((language, index) => {
+    if (event.languages.some((entry) => entry.language === language.code && entry.onDevice)) {
+      listenChips.setName(index, language.name + ' · local')
+    }
+  })
+})
+
 stt.addEventListener('completed', (event) => {
+  orb.transform = Ti.UI.create2DMatrix()
   stopTicker()
   state.stopping = false
   setListening(false)
   listenStatus.text = 'Tap to speak'
   listenHint.text = ''
   if (!event.success) {
-    listenNotice.show(friendly(event.message))
+    listenNotice.show(friendly(event))
     return
   }
   if (!event.detectedInput) {
-    listenNotice.show(friendly('No speech detected'))
+    listenNotice.show(friendly({ code: stt.ERROR_NO_SPEECH }))
     return
   }
   listenNotice.hide()
   showTranscript(event)
 })
+
+if (sttSupported) {
+  stt.requestSupportedLanguages()
+}
 
 if (!sttSupported) {
   listenStatus.text = 'Not available'

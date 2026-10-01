@@ -1,0 +1,34 @@
+{
+  "appBackground": {
+    "light": "#EEF1F8",
+    "dark": "#0B1020"
+  },
+  "surface": {
+    "light": "#FFFFFF",
+    "dark": "#141A2E"
+  },
+  "surfaceRaised": {
+    "light": "#E6EAF5",
+    "dark": "#1D2540"
+  },
+  "divider": {
+    "light": "#D3D9EC",
+    "dark": "#2A3354"
+  },
+  "textPrimary": {
+    "light": "#141A2E",
+    "dark": "#F4F6FF"
+  },
+  "textMuted": {
+    "light": "#5D6786",
+    "dark": "#8C96B8"
+  },
+  "errorColor": {
+    "light": "#D6335C",
+    "dark": "#FF6B8A"
+  },
+  "errorSurface": {
+    "light": "#FDECF1",
+    "dark": "#3A1F33"
+  }
+}
